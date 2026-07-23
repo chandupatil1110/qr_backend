@@ -11,6 +11,7 @@ import { fileURLToPath } from 'url';
 import QRCode from 'qrcode';
 import { Resvg } from '@resvg/resvg-js';
 import wawoff from 'wawoff2';
+import opentype from 'opentype.js';
 
 const RED = '#E51E25';
 const INK = '#0F1115';
@@ -18,15 +19,19 @@ const WHITE = '#FFFFFF';
 
 // ── Fonts ────────────────────────────────────────────────────────────
 //
-// Brand fonts loaded once at module init as file-path lists. resvg-js
-// consumes these directly via `font.fontFiles` — no need to embed the
-// font bytes into the SVG (which libvips/librsvg couldn't parse
-// reliably). resvg reads each file, extracts the family name from the
-// font's own name table, and resolves any `font-family="Poppins"` etc.
-// references in the SVG against those.
+// resvg-js's prebuilt binary on Railway's build image was silently
+// dropping every <text> node — probe PNGs came back as ~100-byte white
+// blanks. We tried both WOFF and WOFF2 buffers and both failed. Whatever
+// version of usvg the deployed resvg-js links against can't resolve
+// text on that host.
 //
-// If the fontsource packages aren't installed, we degrade to system
-// fonts — the sticker still renders, just less on-brand.
+// Rather than fight resvg's font engine, we PRE-RENDER every text node
+// into an SVG <path> before handing the SVG to resvg. opentype.js reads
+// the TTF (produced from WOFF2 via wawoff2's pure-WASM Brotli decoder),
+// converts a string into glyph outlines, and emits <path d="..."/>.
+// resvg then only has to render geometry, which it does perfectly on
+// every platform. Zero runtime font lookups, no libc/musl edge cases,
+// no reliance on defaultFontFamily fallbacks.
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const nodeModules = path.resolve(__dirname, '../../node_modules');
 
@@ -36,51 +41,108 @@ function loadFontBuffer(rel) {
   return fs.readFileSync(abs);
 }
 
-// resvg-js's prebuilt binary for Alpine musl (Railway) can load font
-// BUFFERS just fine but its font parser silently fails on compressed
-// formats (WOFF, WOFF2) — the buffer is accepted, but no glyphs come
-// out and every text node renders blank. We saw this on Railway:
-// fonts loaded ok (bytes present), boot self-test still produced a
-// 104-byte all-white PNG.
-//
-// The fix is to hand resvg the RAW TTF bytes it can always parse. We
-// bundle WOFF2 (via @fontsource) and use wawoff2 — a pure-WASM Brotli
-// decompressor — to expand WOFF2 → TTF once at module init. That runs
-// identically on glibc, musl, and Windows.
 async function loadTtfFromWoff2(baseRel) {
   const woff2 = loadFontBuffer(`${baseRel}.woff2`);
-  const ttf = await wawoff.decompress(woff2);
-  return Buffer.from(ttf);
+  // wawoff.decompress returns a Uint8Array that is a VIEW into WASM
+  // memory — a 16 MB shared pool that wawoff2 reuses across calls.
+  // Later decompressions overwrite earlier views (silently: the length
+  // field stays right, but the bytes get scrambled). Copy the region
+  // into a fresh ArrayBuffer immediately so nothing else can touch it.
+  const view = await wawoff.decompress(woff2);
+  const owned = new Uint8Array(view.byteLength);
+  owned.set(view);
+  return owned;
 }
 
-let FONT_BUFFERS = [];
-let HEADING_FAMILY = 'Arial';
-let BODY_FAMILY = 'Arial';
-let MONO_FAMILY = 'Courier New';
+// opentype.parse takes an ArrayBuffer of the exact font bytes. Our
+// Uint8Arrays always own their whole ArrayBuffer here (see above), so
+// we can hand the buffer over directly.
+function parseOpentype(u8) {
+  return opentype.parse(u8.buffer);
+}
+
+let FONT_HEADING = null; // Poppins 900 — headings, brackets, footer badges
+let FONT_BODY = null;    // Poppins 600 — labels, website/email
+let FONT_MONO = null;    // JetBrains Mono 700 — vehicle plate + digits
 try {
   // Top-level await — Node 18 (Railway) supports this in ESM. It blocks
   // downstream importers (server.js → app.js → routes → services) so
-  // the HTTP server never starts listening with unrendered-text
-  // stickers.
-  FONT_BUFFERS = await Promise.all([
-    loadTtfFromWoff2('@fontsource/poppins/files/poppins-latin-900-normal'),
-    loadTtfFromWoff2('@fontsource/poppins/files/poppins-latin-600-normal'),
-    loadTtfFromWoff2('@fontsource/jetbrains-mono/files/jetbrains-mono-latin-700-normal'),
-  ]);
-  HEADING_FAMILY = 'Poppins';
-  BODY_FAMILY = 'Poppins';
-  MONO_FAMILY = 'JetBrains Mono';
+  // the HTTP server never starts listening before fonts parse.
+  //
+  // Sequential (not Promise.all) because wawoff2's WASM instance holds
+  // a single shared memory buffer; concurrent decompresses corrupt each
+  // other's output even though the promises settle without error.
+  const ttf900 = await loadTtfFromWoff2('@fontsource/poppins/files/poppins-latin-900-normal');
+  const ttf600 = await loadTtfFromWoff2('@fontsource/poppins/files/poppins-latin-600-normal');
+  const ttfMono = await loadTtfFromWoff2('@fontsource/jetbrains-mono/files/jetbrains-mono-latin-700-normal');
+  FONT_HEADING = parseOpentype(ttf900);
+  FONT_BODY = parseOpentype(ttf600);
+  FONT_MONO = parseOpentype(ttfMono);
   console.log(
-    `[sticker] fonts decompressed to TTF: Poppins 900 (${FONT_BUFFERS[0].length}B), ` +
-      `Poppins 600 (${FONT_BUFFERS[1].length}B), ` +
-      `JetBrains Mono 700 (${FONT_BUFFERS[2].length}B)`
+    `[sticker] fonts decompressed + parsed: Poppins 900 (${ttf900.length}B), ` +
+      `Poppins 600 (${ttf600.length}B), JetBrains Mono 700 (${ttfMono.length}B)`
   );
 } catch (e) {
   console.error(
     '[sticker] FONT LOAD FAILED — stickers will render without text. ' +
-      'Run `npm install` in backend/ so @fontsource/*, wawoff2 land in ' +
-      `node_modules. (${e.message})`
+      'Run `npm install` in backend/ so @fontsource/*, wawoff2, opentype.js ' +
+      `land in node_modules. (${e.message})`
   );
+}
+
+// ── Text → SVG <path> ─────────────────────────────────────────────────
+//
+// opentype.js's font.getPath(text, x, y, size) draws text at the given
+// left-baseline anchor without kerning-adjusted letter tracking, so we
+// walk glyph-by-glyph to support letter-spacing (needed for the tracked
+// "SCAN TO CALL OWNER" subhead and the mono digits inside the pill).
+//
+// - anchor: 'start' | 'middle' | 'end' — matches SVG text-anchor
+// - letterSpacing: extra pixels between glyphs (SVG spec's default is 0)
+// - y is the BASELINE, exactly as in <text y="…">
+function textPath(text, x, y, {
+  font, size, fill = INK, anchor = 'start', letterSpacing = 0,
+}) {
+  if (!font) return ''; // Fonts failed to load — degrade silently.
+  const str = String(text ?? '');
+  if (!str) return '';
+
+  const scale = size / font.unitsPerEm;
+
+  // Total advance width across every glyph (opentype exposes advance
+  // in font units; multiply by scale for px). Kerning between adjacent
+  // pairs is added to the running total so anchored placement is
+  // pixel-accurate.
+  const glyphs = font.stringToGlyphs(str);
+  let advance = 0;
+  for (let i = 0; i < glyphs.length; i++) {
+    advance += glyphs[i].advanceWidth * scale;
+    if (i < glyphs.length - 1) {
+      const kern = font.getKerningValue
+        ? font.getKerningValue(glyphs[i], glyphs[i + 1]) * scale
+        : 0;
+      advance += kern + letterSpacing;
+    }
+  }
+
+  let cursor = x;
+  if (anchor === 'middle') cursor = x - advance / 2;
+  else if (anchor === 'end') cursor = x - advance;
+
+  let d = '';
+  for (let i = 0; i < glyphs.length; i++) {
+    const g = glyphs[i];
+    const p = g.getPath(cursor, y, size);
+    d += p.toPathData(2) + ' ';
+    cursor += g.advanceWidth * scale;
+    if (i < glyphs.length - 1) {
+      const kern = font.getKerningValue
+        ? font.getKerningValue(glyphs[i], glyphs[i + 1]) * scale
+        : 0;
+      cursor += kern + letterSpacing;
+    }
+  }
+  return `<path d="${d.trim()}" fill="${fill}"/>`;
 }
 
 // Base coordinate space. Width is sized so "QR 4 EMERGENCY" at Poppins
@@ -209,27 +271,20 @@ function buildStickerSvg({ qrPngB64, digits, showVehicle, vehicleNumber }) {
     <!-- Thin glossy highlight just below the top edge — sells the
          curved-plastic look without needing a full inner-shadow filter. -->
     <rect x="0" y="0" width="${W}" height="3" fill="#FFFFFF" opacity="0.22"/>
-    <text x="${W / 2}" y="64" text-anchor="middle"
-          font-family="${HEADING_FAMILY}"
-          font-weight="900" font-size="40" fill="${WHITE}"
-          letter-spacing="-0.5">
-      QR 4 EMERGENCY
-    </text>
-    <text x="${W / 2}" y="91" text-anchor="middle"
-          font-family="${BODY_FAMILY}" font-weight="600"
-          font-size="15" fill="${WHITE}" letter-spacing="2.4">
-      SCAN TO CALL OWNER
-    </text>
+    ${textPath('QR 4 EMERGENCY', W / 2, 64, {
+      font: FONT_HEADING, size: 40, fill: WHITE, anchor: 'middle', letterSpacing: -0.5,
+    })}
+    ${textPath('SCAN TO CALL OWNER', W / 2, 91, {
+      font: FONT_BODY, size: 15, fill: WHITE, anchor: 'middle', letterSpacing: 2.4,
+    })}
 
     <!-- ── Vehicle number (auto-QR only) — uses mono so plate reads
          cleanly and every character has the same width. ──────────── -->
     ${
       showVehicle
-        ? `<text x="${W / 2}" y="${HEADER_H + 32}" text-anchor="middle"
-              font-family="${MONO_FAMILY}" font-weight="700"
-              font-size="26" fill="${RED}" letter-spacing="1.5">
-              ${escapeXml((vehicleNumber || '').toUpperCase())}
-            </text>`
+        ? textPath((vehicleNumber || '').toUpperCase(), W / 2, HEADER_H + 32, {
+            font: FONT_MONO, size: 26, fill: RED, anchor: 'middle', letterSpacing: 1.5,
+          })
         : ''
     }
 
@@ -256,16 +311,14 @@ function buildStickerSvg({ qrPngB64, digits, showVehicle, vehicleNumber }) {
     </g>
 
     <!-- ── "Extension Number" label ────────────────────────── -->
-    <text x="${W / 2}" y="${EXT_LABEL_Y}" text-anchor="middle"
-          font-family="${BODY_FAMILY}" font-weight="600"
-          font-size="17" fill="${INK}" letter-spacing="0.3">
-      Extension Number
-    </text>
+    ${textPath('Extension Number', W / 2, EXT_LABEL_Y, {
+      font: FONT_BODY, size: 17, fill: INK, anchor: 'middle', letterSpacing: 0.3,
+    })}
 
     <!-- ── Bottom row: BE NAYAK · cross · pill · cross · BE NAYAK ── -->
-    <text x="${leftLabelX}" y="${rowCy + 5}" text-anchor="start"
-          font-family="${HEADING_FAMILY}" font-weight="900"
-          font-size="16" fill="${INK}" letter-spacing="0.5">BE NAYAK</text>
+    ${textPath('BE NAYAK', leftLabelX, rowCy + 5, {
+      font: FONT_HEADING, size: 16, fill: INK, anchor: 'start', letterSpacing: 0.5,
+    })}
     ${cross(leftCrossCx, rowCy, CROSS_SIZE)}
 
     <!-- Red pill with black digits — gradient + drop shadow so it
@@ -278,16 +331,14 @@ function buildStickerSvg({ qrPngB64, digits, showVehicle, vehicleNumber }) {
       <rect x="${PILL_X + 2}" y="${PILL_Y + 2}" width="${PILL_W - 4}" height="${PILL_H * 0.42}"
             rx="6" ry="6" fill="#FFFFFF" opacity="0.14"/>
     </g>
-    <text x="${W / 2}" y="${PILL_Y + 32}" text-anchor="middle"
-          font-family="${MONO_FAMILY}" font-weight="700"
-          font-size="26" fill="${INK}" letter-spacing="1.5">
-      ${escapeXml(digits || '—')}
-    </text>
+    ${textPath(digits || '—', W / 2, PILL_Y + 32, {
+      font: FONT_MONO, size: 26, fill: INK, anchor: 'middle', letterSpacing: 1.5,
+    })}
 
     ${cross(rightCrossCx, rowCy, CROSS_SIZE)}
-    <text x="${rightLabelX}" y="${rowCy + 5}" text-anchor="end"
-          font-family="${HEADING_FAMILY}" font-weight="900"
-          font-size="16" fill="${INK}" letter-spacing="0.5">BE NAYAK</text>
+    ${textPath('BE NAYAK', rightLabelX, rowCy + 5, {
+      font: FONT_HEADING, size: 16, fill: INK, anchor: 'end', letterSpacing: 0.5,
+    })}
 
     <!-- ── Red footer with two icon rows ───────────────────── -->
     <rect x="0" y="${FOOTER_TOP}" width="${W}" height="${FOOTER_H}" fill="url(#footerGrad)"/>
@@ -326,14 +377,14 @@ function footerRow1(y) {
   const rightIconX = rightTextRight - estEmailWidth - 20;
   return `
     ${iconGlobe(leftIconX, y - 10, 14, WHITE)}
-    <text x="${leftTextX}" y="${y + 2}" text-anchor="start"
-          font-family="${BODY_FAMILY}" font-weight="600"
-          font-size="12" fill="${WHITE}">www.qr4emergency.com</text>
+    ${textPath('www.qr4emergency.com', leftTextX, y + 2, {
+      font: FONT_BODY, size: 12, fill: WHITE, anchor: 'start',
+    })}
 
     ${iconMail(rightIconX, y - 10, 14, WHITE)}
-    <text x="${rightTextRight}" y="${y + 2}" text-anchor="end"
-          font-family="${BODY_FAMILY}" font-weight="600"
-          font-size="12" fill="${WHITE}">${emailText}</text>
+    ${textPath(emailText, rightTextRight, y + 2, {
+      font: FONT_BODY, size: 12, fill: WHITE, anchor: 'end',
+    })}
   `;
 }
 
@@ -359,9 +410,9 @@ function footerRow2(y) {
     const textX = iconX + iconSize + gap;
     out += `
       ${c.icon(iconX, y - 12, iconSize, WHITE)}
-      <text x="${textX}" y="${y + 2}" text-anchor="start"
-            font-family="${HEADING_FAMILY}" font-weight="900"
-            font-size="13" fill="${WHITE}" letter-spacing="0.4">${c.label}</text>
+      ${textPath(c.label, textX, y + 2, {
+        font: FONT_HEADING, size: 13, fill: WHITE, anchor: 'start', letterSpacing: 0.4,
+      })}
     `;
   }
   for (const dx of dividers) {
@@ -439,9 +490,9 @@ function iconParking(x, y, s, c) {
   return `
     <g>
       <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${c}" stroke-width="1.4"/>
-      <text x="${cx}" y="${cy + r * 0.7}" text-anchor="middle"
-            font-family="${HEADING_FAMILY}" font-weight="900"
-            font-size="${s * 0.75}" fill="${c}">P</text>
+      ${textPath('P', cx, cy + r * 0.7, {
+        font: FONT_HEADING, size: s * 0.75, fill: c, anchor: 'middle',
+      })}
     </g>
   `;
 }
@@ -494,47 +545,35 @@ export async function renderStickerPng({
     vehicleNumber,
   });
 
-  // resvg-js reads the SVG, resolves font-family references against
-  // the byte buffers we hand it directly, and rasterizes to PNG in one
-  // shot. `loadSystemFonts: true` is kept enabled as a belt-and-braces
-  // fallback so if the bundled buffer somehow fails to parse (Alpine
-  // musl edge case), resvg can still find SOMETHING on the system
-  // rather than dropping every text node.
-  const resvg = new Resvg(svg, {
-    background: WHITE,
-    font: {
-      fontBuffers: FONT_BUFFERS,
-      loadSystemFonts: true,
-      defaultFontFamily: FONT_BUFFERS.length ? 'Poppins' : 'Arial',
-    },
-  });
+  // resvg only sees geometry now — every text node was already
+  // converted to <path> via opentype.js in buildStickerSvg(). No font
+  // config needed; resvg's font engine isn't involved. This is what
+  // makes the sticker render identically on Windows, glibc, and musl.
+  const resvg = new Resvg(svg, { background: WHITE });
   return resvg.render().asPng();
 }
 
-// Boot-time self-test — renders a 40×20 SVG with the loaded fonts and
-// checks the resulting PNG isn't a solid-white blank (which would mean
-// text failed to draw). Logs the outcome LOUDLY so Railway logs
-// immediately show whether stickers will have text or not.
+// Boot-time self-test — pre-renders the letter "A" via opentype.js
+// (same path text takes on real stickers) and rasterises it. Confirms
+// both the font parsed AND resvg can paint the resulting geometry.
+// Logs LOUDLY so Railway logs immediately show whether stickers will
+// have text or not.
 try {
+  const probePath = textPath('A', 0, 16, {
+    font: FONT_HEADING, size: 16, fill: '#000000', anchor: 'start',
+  });
   const probeSvg = `<?xml version="1.0"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 20" width="40" height="20">
   <rect width="40" height="20" fill="#ffffff"/>
-  <text x="0" y="16" font-family="${HEADING_FAMILY}" font-weight="900" font-size="16" fill="#000000">A</text>
+  ${probePath}
 </svg>`;
-  const probe = new Resvg(probeSvg, {
-    background: WHITE,
-    font: {
-      fontBuffers: FONT_BUFFERS,
-      loadSystemFonts: true,
-      defaultFontFamily: FONT_BUFFERS.length ? 'Poppins' : 'Arial',
-    },
-  }).render().asPng();
+  const probe = new Resvg(probeSvg, { background: WHITE }).render().asPng();
   // A blank 40×20 white PNG is ~150 bytes; an 'A' glyph pushes it well
   // past 300. Not a bulletproof check but catches "no font loaded at
   // all" without needing pixel-level inspection.
   const hasText = probe.length > 300;
   if (hasText) {
-    console.log(`[sticker] font self-test PASSED — probe png=${probe.length}B, family=${HEADING_FAMILY}`);
+    console.log(`[sticker] font self-test PASSED — probe png=${probe.length}B (opentype path rendered)`);
   } else {
     console.error(
       `[sticker] FONT SELF-TEST FAILED — probe png=${probe.length}B ` +
