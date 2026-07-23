@@ -29,34 +29,40 @@ const WHITE = '#FFFFFF';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const nodeModules = path.resolve(__dirname, '../../node_modules');
 
-function fontPath(rel) {
+function loadFontBuffer(rel) {
   const abs = path.join(nodeModules, rel);
   if (!fs.existsSync(abs)) throw new Error(`font not found at ${abs}`);
-  return abs;
+  return fs.readFileSync(abs);
 }
 
-let FONT_FILES = [];
-// resvg-js silently drops every text node when a comma-separated
-// font-family string references any name it can't resolve. So use a
-// single family name per string — bundled Poppins / JetBrains Mono when
-// available, plain Arial otherwise. resvg's `defaultFontFamily` picks
-// up any final fallback.
+// Fonts loaded as byte BUFFERS (not file paths) so resvg-js doesn't
+// need to touch the filesystem at rasterization time. Alpine (Railway's
+// default Node image) ships basically no fonts, and its font-file
+// loader was silently dropping every text node when passed paths.
+// Buffers work identically on Alpine and Windows/macOS.
+let FONT_BUFFERS = [];
 let HEADING_FAMILY = 'Arial';
 let BODY_FAMILY = 'Arial';
 let MONO_FAMILY = 'Courier New';
 try {
-  FONT_FILES = [
-    fontPath('@fontsource/poppins/files/poppins-latin-900-normal.woff2'),
-    fontPath('@fontsource/poppins/files/poppins-latin-600-normal.woff2'),
-    fontPath('@fontsource/jetbrains-mono/files/jetbrains-mono-latin-700-normal.woff2'),
+  FONT_BUFFERS = [
+    loadFontBuffer('@fontsource/poppins/files/poppins-latin-900-normal.woff2'),
+    loadFontBuffer('@fontsource/poppins/files/poppins-latin-600-normal.woff2'),
+    loadFontBuffer('@fontsource/jetbrains-mono/files/jetbrains-mono-latin-700-normal.woff2'),
   ];
   HEADING_FAMILY = 'Poppins';
   BODY_FAMILY = 'Poppins';
   MONO_FAMILY = 'JetBrains Mono';
+  console.log(
+    `[sticker] fonts loaded: Poppins 900 (${FONT_BUFFERS[0].length}B), ` +
+      `Poppins 600 (${FONT_BUFFERS[1].length}B), ` +
+      `JetBrains Mono 700 (${FONT_BUFFERS[2].length}B)`
+  );
 } catch (e) {
-  console.warn(
-    '[sticker] font packages not found — using system fallback. ' +
-      'Run `npm install` in backend/ to bundle Poppins + JetBrains Mono. ' +
+  console.error(
+    '[sticker] FONT LOAD FAILED — stickers will render without text. ' +
+      'Run `npm install` in backend/ so @fontsource/poppins and ' +
+      '@fontsource/jetbrains-mono land in node_modules. ' +
       `(${e.message})`
   );
 }
@@ -472,17 +478,18 @@ export async function renderStickerPng({
     vehicleNumber,
   });
 
-  // resvg-js reads the SVG, resolves font-family references against the
-  // TTF/WOFF2 files we pass in via `fontFiles`, and rasterizes to PNG in
-  // one shot. Skipping libvips avoids its brittle @font-face parsing.
+  // resvg-js reads the SVG, resolves font-family references against
+  // the byte buffers we hand it directly, and rasterizes to PNG in one
+  // shot. Passing bytes (not paths) means Railway's Alpine image can
+  // render text even though it doesn't ship any system fonts.
   const resvg = new Resvg(svg, {
     background: WHITE,
     font: {
-      fontFiles: FONT_FILES,
-      // System fonts loaded too so Render's Alpine image has Arial as
-      // a real fallback if the bundled woff2 fails to load.
-      loadSystemFonts: true,
-      defaultFontFamily: FONT_FILES.length ? 'Poppins' : 'Arial',
+      fontBuffers: FONT_BUFFERS,
+      loadSystemFonts: false, // buffers alone are enough; avoids
+                              // a system-font enumeration that's slow
+                              // and unreliable on musl-libc images.
+      defaultFontFamily: FONT_BUFFERS.length ? 'Poppins' : 'Arial',
     },
   });
   return resvg.render().asPng();
