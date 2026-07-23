@@ -90,6 +90,28 @@ try {
   );
 }
 
+// Serialise an opentype.js Path.commands array into an SVG `d`
+// attribute value. Round every coordinate to `precision` decimals.
+// This is a drop-in replacement for opentype's `.toPathData()` which
+// occasionally emits "NaN" for coordinates that are effectively
+// integers with tiny FP drift (e.g. 386.0000000000003) — see the
+// long comment in textPath() for the details.
+function commandsToPathData(commands, precision) {
+  const r = (n) => n.toFixed(precision);
+  let d = '';
+  for (const c of commands) {
+    switch (c.type) {
+      case 'M': d += `M${r(c.x)} ${r(c.y)}`; break;
+      case 'L': d += `L${r(c.x)} ${r(c.y)}`; break;
+      case 'Q': d += `Q${r(c.x1)} ${r(c.y1)} ${r(c.x)} ${r(c.y)}`; break;
+      case 'C': d += `C${r(c.x1)} ${r(c.y1)} ${r(c.x2)} ${r(c.y2)} ${r(c.x)} ${r(c.y)}`; break;
+      case 'Z': d += 'Z'; break;
+    }
+    d += ' ';
+  }
+  return d.trim();
+}
+
 // ── Text → SVG <path> ─────────────────────────────────────────────────
 //
 // opentype.js's font.getPath(text, x, y, size) draws text at the given
@@ -136,10 +158,20 @@ function textPath(text, x, y, {
   // that rendered only their first ~16 glyphs, so the ".com" tail
   // disappeared. Individual glyph paths stay under 1K chars each and
   // render identically to one big path.
+  //
+  // We serialise the path COMMANDS ourselves rather than calling
+  // opentype's `.toPathData(precision)` because that method has an
+  // edge-case bug: when a glyph's transformed coordinate lands on
+  // something like 386.0000000000003 (FP drift from accumulated cursor
+  // scaling), it can emit "NaN" into the string even though the
+  // commands array holds the correct number. That happened
+  // reproducibly on the third 'e' in "emergency" — resvg then dropped
+  // that glyph, leaving a visible gap. Our serializer just does
+  // `n.toFixed(2)` per number and never introduces NaN.
   let out = '';
   for (let i = 0; i < glyphs.length; i++) {
     const g = glyphs[i];
-    const d = g.getPath(cursor, y, size).toPathData(2);
+    const d = commandsToPathData(g.getPath(cursor, y, size).commands, 2);
     if (d) out += `<path d="${d}" fill="${fill}"/>`;
     cursor += g.advanceWidth * scale;
     if (i < glyphs.length - 1) {
