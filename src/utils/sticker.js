@@ -129,11 +129,18 @@ function textPath(text, x, y, {
   if (anchor === 'middle') cursor = x - advance / 2;
   else if (anchor === 'end') cursor = x - advance;
 
-  let d = '';
+  // Emit ONE <path> per glyph rather than concatenating every glyph's
+  // path commands into a single huge `d` attribute. resvg-js silently
+  // truncates path data past a length threshold (~10K chars) — long
+  // strings like "support@qr4emergency.com" produced ~13K-char paths
+  // that rendered only their first ~16 glyphs, so the ".com" tail
+  // disappeared. Individual glyph paths stay under 1K chars each and
+  // render identically to one big path.
+  let out = '';
   for (let i = 0; i < glyphs.length; i++) {
     const g = glyphs[i];
-    const p = g.getPath(cursor, y, size);
-    d += p.toPathData(2) + ' ';
+    const d = g.getPath(cursor, y, size).toPathData(2);
+    if (d) out += `<path d="${d}" fill="${fill}"/>`;
     cursor += g.advanceWidth * scale;
     if (i < glyphs.length - 1) {
       const kern = font.getKerningValue
@@ -142,7 +149,7 @@ function textPath(text, x, y, {
       cursor += kern + letterSpacing;
     }
   }
-  return `<path d="${d.trim()}" fill="${fill}"/>`;
+  return out;
 }
 
 // Base coordinate space. Width is sized so "QR 4 EMERGENCY" at Poppins
