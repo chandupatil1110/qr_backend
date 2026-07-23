@@ -79,7 +79,7 @@ const W = 460;
 function buildStickerSvg({ qrPngB64, digits, showVehicle, vehicleNumber }) {
   // Vertical layout — anchors declared top-down so the file reads in
   // the same order as the sticker.
-  const HEADER_H = 100;
+  const HEADER_H = 108; // matches mobile Flutter Container height
   const VEHICLE_ROW_H = showVehicle ? 40 : 8; // small gap even when hidden
   const QR_FRAME_TOP = HEADER_H + VEHICLE_ROW_H;
   const QR_FRAME_W = 320;
@@ -187,13 +187,13 @@ function buildStickerSvg({ qrPngB64, digits, showVehicle, vehicleNumber }) {
     <!-- Thin glossy highlight just below the top edge — sells the
          curved-plastic look without needing a full inner-shadow filter. -->
     <rect x="0" y="0" width="${W}" height="3" fill="#FFFFFF" opacity="0.22"/>
-    <text x="${W / 2}" y="60" text-anchor="middle"
+    <text x="${W / 2}" y="64" text-anchor="middle"
           font-family="${HEADING_FAMILY}"
           font-weight="900" font-size="40" fill="${WHITE}"
           letter-spacing="-0.5">
       QR 4 EMERGENCY
     </text>
-    <text x="${W / 2}" y="87" text-anchor="middle"
+    <text x="${W / 2}" y="91" text-anchor="middle"
           font-family="${BODY_FAMILY}" font-weight="600"
           font-size="15" fill="${WHITE}" letter-spacing="2.4">
       SCAN TO CALL OWNER
