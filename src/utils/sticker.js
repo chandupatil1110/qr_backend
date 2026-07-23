@@ -10,6 +10,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import QRCode from 'qrcode';
 import { Resvg } from '@resvg/resvg-js';
+import wawoff from 'wawoff2';
 
 const RED = '#E51E25';
 const INK = '#0F1115';
@@ -35,21 +36,21 @@ function loadFontBuffer(rel) {
   return fs.readFileSync(abs);
 }
 
-// Fonts loaded as byte BUFFERS (not file paths) so resvg-js doesn't
-// need to touch the filesystem at rasterization time. Alpine (Railway's
-// default Node image) ships basically no fonts, and its font-file
-// loader was silently dropping every text node when passed paths.
-// Buffers work identically on Alpine and Windows/macOS.
-// Try WOFF first, fall back to WOFF2. resvg-js's prebuilt binary on
-// Railway's Alpine musl image was silently failing to decompress WOFF2
-// (missing Brotli in the compile) — text nodes rendered blank. WOFF
-// uses plain deflate which every resvg build supports universally.
-function loadWithFallback(baseRel) {
-  try {
-    return loadFontBuffer(`${baseRel}.woff`);
-  } catch (_) {
-    return loadFontBuffer(`${baseRel}.woff2`);
-  }
+// resvg-js's prebuilt binary for Alpine musl (Railway) can load font
+// BUFFERS just fine but its font parser silently fails on compressed
+// formats (WOFF, WOFF2) — the buffer is accepted, but no glyphs come
+// out and every text node renders blank. We saw this on Railway:
+// fonts loaded ok (bytes present), boot self-test still produced a
+// 104-byte all-white PNG.
+//
+// The fix is to hand resvg the RAW TTF bytes it can always parse. We
+// bundle WOFF2 (via @fontsource) and use wawoff2 — a pure-WASM Brotli
+// decompressor — to expand WOFF2 → TTF once at module init. That runs
+// identically on glibc, musl, and Windows.
+async function loadTtfFromWoff2(baseRel) {
+  const woff2 = loadFontBuffer(`${baseRel}.woff2`);
+  const ttf = await wawoff.decompress(woff2);
+  return Buffer.from(ttf);
 }
 
 let FONT_BUFFERS = [];
@@ -57,25 +58,28 @@ let HEADING_FAMILY = 'Arial';
 let BODY_FAMILY = 'Arial';
 let MONO_FAMILY = 'Courier New';
 try {
-  FONT_BUFFERS = [
-    loadWithFallback('@fontsource/poppins/files/poppins-latin-900-normal'),
-    loadWithFallback('@fontsource/poppins/files/poppins-latin-600-normal'),
-    loadWithFallback('@fontsource/jetbrains-mono/files/jetbrains-mono-latin-700-normal'),
-  ];
+  // Top-level await — Node 18 (Railway) supports this in ESM. It blocks
+  // downstream importers (server.js → app.js → routes → services) so
+  // the HTTP server never starts listening with unrendered-text
+  // stickers.
+  FONT_BUFFERS = await Promise.all([
+    loadTtfFromWoff2('@fontsource/poppins/files/poppins-latin-900-normal'),
+    loadTtfFromWoff2('@fontsource/poppins/files/poppins-latin-600-normal'),
+    loadTtfFromWoff2('@fontsource/jetbrains-mono/files/jetbrains-mono-latin-700-normal'),
+  ]);
   HEADING_FAMILY = 'Poppins';
   BODY_FAMILY = 'Poppins';
   MONO_FAMILY = 'JetBrains Mono';
   console.log(
-    `[sticker] fonts loaded: Poppins 900 (${FONT_BUFFERS[0].length}B), ` +
+    `[sticker] fonts decompressed to TTF: Poppins 900 (${FONT_BUFFERS[0].length}B), ` +
       `Poppins 600 (${FONT_BUFFERS[1].length}B), ` +
       `JetBrains Mono 700 (${FONT_BUFFERS[2].length}B)`
   );
 } catch (e) {
   console.error(
     '[sticker] FONT LOAD FAILED — stickers will render without text. ' +
-      'Run `npm install` in backend/ so @fontsource/poppins and ' +
-      '@fontsource/jetbrains-mono land in node_modules. ' +
-      `(${e.message})`
+      'Run `npm install` in backend/ so @fontsource/*, wawoff2 land in ' +
+      `node_modules. (${e.message})`
   );
 }
 
