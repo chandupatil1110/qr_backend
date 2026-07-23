@@ -40,15 +40,27 @@ function loadFontBuffer(rel) {
 // default Node image) ships basically no fonts, and its font-file
 // loader was silently dropping every text node when passed paths.
 // Buffers work identically on Alpine and Windows/macOS.
+// Try WOFF first, fall back to WOFF2. resvg-js's prebuilt binary on
+// Railway's Alpine musl image was silently failing to decompress WOFF2
+// (missing Brotli in the compile) — text nodes rendered blank. WOFF
+// uses plain deflate which every resvg build supports universally.
+function loadWithFallback(baseRel) {
+  try {
+    return loadFontBuffer(`${baseRel}.woff`);
+  } catch (_) {
+    return loadFontBuffer(`${baseRel}.woff2`);
+  }
+}
+
 let FONT_BUFFERS = [];
 let HEADING_FAMILY = 'Arial';
 let BODY_FAMILY = 'Arial';
 let MONO_FAMILY = 'Courier New';
 try {
   FONT_BUFFERS = [
-    loadFontBuffer('@fontsource/poppins/files/poppins-latin-900-normal.woff2'),
-    loadFontBuffer('@fontsource/poppins/files/poppins-latin-600-normal.woff2'),
-    loadFontBuffer('@fontsource/jetbrains-mono/files/jetbrains-mono-latin-700-normal.woff2'),
+    loadWithFallback('@fontsource/poppins/files/poppins-latin-900-normal'),
+    loadWithFallback('@fontsource/poppins/files/poppins-latin-600-normal'),
+    loadWithFallback('@fontsource/jetbrains-mono/files/jetbrains-mono-latin-700-normal'),
   ];
   HEADING_FAMILY = 'Poppins';
   BODY_FAMILY = 'Poppins';
@@ -480,17 +492,53 @@ export async function renderStickerPng({
 
   // resvg-js reads the SVG, resolves font-family references against
   // the byte buffers we hand it directly, and rasterizes to PNG in one
-  // shot. Passing bytes (not paths) means Railway's Alpine image can
-  // render text even though it doesn't ship any system fonts.
+  // shot. `loadSystemFonts: true` is kept enabled as a belt-and-braces
+  // fallback so if the bundled buffer somehow fails to parse (Alpine
+  // musl edge case), resvg can still find SOMETHING on the system
+  // rather than dropping every text node.
   const resvg = new Resvg(svg, {
     background: WHITE,
     font: {
       fontBuffers: FONT_BUFFERS,
-      loadSystemFonts: false, // buffers alone are enough; avoids
-                              // a system-font enumeration that's slow
-                              // and unreliable on musl-libc images.
+      loadSystemFonts: true,
       defaultFontFamily: FONT_BUFFERS.length ? 'Poppins' : 'Arial',
     },
   });
   return resvg.render().asPng();
+}
+
+// Boot-time self-test — renders a 40×20 SVG with the loaded fonts and
+// checks the resulting PNG isn't a solid-white blank (which would mean
+// text failed to draw). Logs the outcome LOUDLY so Railway logs
+// immediately show whether stickers will have text or not.
+try {
+  const probeSvg = `<?xml version="1.0"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 20" width="40" height="20">
+  <rect width="40" height="20" fill="#ffffff"/>
+  <text x="0" y="16" font-family="${HEADING_FAMILY}" font-weight="900" font-size="16" fill="#000000">A</text>
+</svg>`;
+  const probe = new Resvg(probeSvg, {
+    background: WHITE,
+    font: {
+      fontBuffers: FONT_BUFFERS,
+      loadSystemFonts: true,
+      defaultFontFamily: FONT_BUFFERS.length ? 'Poppins' : 'Arial',
+    },
+  }).render().asPng();
+  // A blank 40×20 white PNG is ~150 bytes; an 'A' glyph pushes it well
+  // past 300. Not a bulletproof check but catches "no font loaded at
+  // all" without needing pixel-level inspection.
+  const hasText = probe.length > 300;
+  if (hasText) {
+    console.log(`[sticker] font self-test PASSED — probe png=${probe.length}B, family=${HEADING_FAMILY}`);
+  } else {
+    console.error(
+      `[sticker] FONT SELF-TEST FAILED — probe png=${probe.length}B ` +
+        `is suspiciously small, text likely won't render on stickers. ` +
+        `Check @fontsource/* is installed and this resvg-js binary ` +
+        `supports the font format we're passing.`
+    );
+  }
+} catch (probeErr) {
+  console.error('[sticker] font self-test threw:', probeErr.message);
 }
