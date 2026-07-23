@@ -25,7 +25,34 @@ app.set('trust proxy', 1);
 // those pages ourselves so a bespoke CSP is safe to skip for now.
 app.use(helmet({ contentSecurityPolicy: false }));
 
-app.use(cors());
+// CORS — API is called by the mobile app (no browser origin), by the
+// bystander-facing alert page served from OUR OWN backend, and by the
+// admin panel also on this backend. So the only browser origins that
+// legitimately hit /api/* are our own; everything else should be
+// blocked. Additional origins (staging web) can be added via the
+// CORS_ORIGINS env var, comma-separated.
+const staticOrigins = [
+  'https://qrbackend-production-f691.up.railway.app',
+  'https://pi-backend-qkjh.onrender.com',
+];
+const extraOrigins = (process.env.CORS_ORIGINS || '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+const allowedOrigins = new Set([...staticOrigins, ...extraOrigins]);
+app.use(
+  cors({
+    origin: (origin, cb) => {
+      // Mobile app / server-to-server calls have no Origin header —
+      // let them through. Browsers always send one, and we allow-list
+      // only our own hosts.
+      if (!origin) return cb(null, true);
+      if (allowedOrigins.has(origin)) return cb(null, true);
+      return cb(new Error(`CORS: origin ${origin} not allowed`));
+    },
+    credentials: true,
+  })
+);
 
 // Razorpay's webhook body must be HMAC-verified against the EXACT bytes
 // Razorpay signed. If express.json() runs first it consumes the stream

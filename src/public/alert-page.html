@@ -90,6 +90,77 @@
     .mb { margin-bottom: 12px; }
     .text-center { text-align: center; }
     hr { border: none; border-top: 1px solid rgba(255, 255, 255, 0.08); margin: 24px 0; }
+
+    /* Sub-section card used inside step-register — mirrors the EaCard
+       layout the Flutter /qr/create form uses (Personal, Shipping,
+       Family). Sits inside the main card, so background is a slightly
+       lighter shade for depth. */
+    .section-card {
+      background: #1E293B;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 14px;
+      padding: 16px 16px 4px;
+      margin-bottom: 16px;
+    }
+    .section-title {
+      font-size: 1rem;
+      font-weight: 800;
+      color: #F8FAFC;
+      margin: 0 0 4px;
+    }
+    .section-sub {
+      font-size: 0.8rem;
+      color: #94A3B8;
+      margin: 0 0 10px;
+      line-height: 1.4;
+    }
+    .field-hint {
+      font-size: 0.75rem;
+      color: #64748B;
+      margin: 2px 0 0;
+      line-height: 1.3;
+    }
+    .row-2 { display: flex; gap: 12px; }
+    .row-2 > * { flex: 1; min-width: 0; }
+    .family-contact-group {
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
+      padding: 12px;
+      margin-bottom: 12px;
+      position: relative;
+    }
+    .contact-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-weight: 700;
+      color: #F8FAFC;
+      margin-bottom: 4px;
+    }
+    .btn-remove-contact {
+      background: transparent;
+      color: #F87171;
+      border: none;
+      padding: 4px 6px;
+      width: auto;
+      margin-top: 0;
+      cursor: pointer;
+      font-size: 1.2rem;
+      line-height: 1;
+    }
+    .pincode-wrap { position: relative; }
+    .pincode-spinner {
+      position: absolute;
+      right: 14px;
+      top: 14px;
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255, 122, 0, 0.25);
+      border-top-color: #FF7A00;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
@@ -155,46 +226,151 @@
     <button type="button" id="btn-link-continue">Continue</button>
   </div>
 
-  <div class="card hidden" id="step-register">
-    <h1>Register & Activate QR</h1>
+  <div class="card hidden" id="step-register" style="max-width: 520px;">
+    <h1>Create Emergency QR</h1>
+    <p class="sub">Fill in your details to activate this sticker.</p>
     <div class="err hidden" id="reg-form-err"></div>
-    
-    <label>Mobile Number</label>
-    <input id="reg-mobile" disabled />
 
-    <label>Full Name *</label>
-    <input id="reg-name" placeholder="Name" />
+    <!-- ── Personal Information ─────────────────────────────── -->
+    <div class="section-card">
+      <p class="section-title">Personal Information</p>
 
-    <label>Email ID (Optional)</label>
-    <input id="reg-email" placeholder="Email" type="email" />
+      <label>Full Name *</label>
+      <input id="reg-name" placeholder="Enter your full name" />
 
-    <label>Vehicle Number *</label>
-    <input id="reg-vehicle" placeholder="MH12AB1234" />
-    <div class="err hidden" id="reg-vehicle-err"></div>
+      <label>Mobile Number *</label>
+      <input id="reg-mobile" placeholder="10-digit mobile number" disabled />
 
-    <label>Referral Code *</label>
-    <input id="reg-referral" placeholder="Enter referral code" />
+      <label>Email *</label>
+      <input id="reg-email" placeholder="you@example.com" type="email" />
 
-    <hr />
-    <h2 style="color: #FF7A00;">Family Contacts (Max 5)</h2>
-    <div id="family-contacts-container">
-      <div class="family-contact-group">
-        <label>Contact Name *</label>
-        <input class="reg-fam-name" placeholder="Name" />
-        <label>Contact Phone *</label>
-        <input class="reg-fam-phone" placeholder="10-digit mobile" inputmode="numeric" />
-        <label>Relationship *</label>
-        <select class="reg-fam-rel">
-          <option value="">Select Relation</option>
-          <option value="Father/Mother">Father / Mother</option>
-          <option value="Sister/Brother">Sister / Brother</option>
-          <option value="Husband/Wife">Husband / Wife</option>
-          <option value="Son/Daughter">Son / Daughter</option>
-          <option value="Other">Other</option>
-        </select>
+      <label>Vehicle Number *</label>
+      <input id="reg-vehicle" placeholder="e.g., MH12AB1234 or 22BH1234AA"
+             style="text-transform: uppercase;" />
+      <p class="field-hint">*Format: standard Indian registration or BH-series (e.g., 22BH1234AA)</p>
+
+      <label>Blood Group *</label>
+      <select id="reg-blood">
+        <option value="">Select blood group</option>
+        <option>A+</option><option>A-</option>
+        <option>B+</option><option>B-</option>
+        <option>O+</option><option>O-</option>
+        <option>AB+</option><option>AB-</option>
+      </select>
+
+      <label>Referral Code *</label>
+      <input id="reg-referral" placeholder="Enter referral code from sticker" />
+    </div>
+
+    <!-- ── Shipping Address ────────────────────────────────── -->
+    <div class="section-card">
+      <p class="section-title">Shipping Address</p>
+      <p class="section-sub">Where should we ship your printed QR sticker?</p>
+
+      <label>Address Line 1 *</label>
+      <input id="reg-addr1" placeholder="House/Flat number, Building, Street" />
+
+      <label>Address Line 2</label>
+      <input id="reg-addr2" placeholder="Landmark, Area (optional)" />
+
+      <label>Pincode *</label>
+      <div class="pincode-wrap">
+        <input id="reg-pincode" placeholder="6-digit postal code"
+               inputmode="numeric" maxlength="6" />
+        <div id="reg-pincode-spinner" class="pincode-spinner hidden"></div>
+      </div>
+
+      <div class="row-2">
+        <div>
+          <label>City *</label>
+          <input id="reg-city" placeholder="e.g., Mumbai" />
+        </div>
+        <div>
+          <label>State *</label>
+          <select id="reg-state">
+            <option value="">Select state</option>
+            <option>Andaman and Nicobar Islands</option>
+            <option>Andhra Pradesh</option>
+            <option>Arunachal Pradesh</option>
+            <option>Assam</option>
+            <option>Bihar</option>
+            <option>Chandigarh</option>
+            <option>Chhattisgarh</option>
+            <option>Dadra and Nagar Haveli and Daman and Diu</option>
+            <option>Delhi</option>
+            <option>Goa</option>
+            <option>Gujarat</option>
+            <option>Haryana</option>
+            <option>Himachal Pradesh</option>
+            <option>Jammu and Kashmir</option>
+            <option>Jharkhand</option>
+            <option>Karnataka</option>
+            <option>Kerala</option>
+            <option>Ladakh</option>
+            <option>Lakshadweep</option>
+            <option>Madhya Pradesh</option>
+            <option>Maharashtra</option>
+            <option>Manipur</option>
+            <option>Meghalaya</option>
+            <option>Mizoram</option>
+            <option>Nagaland</option>
+            <option>Odisha</option>
+            <option>Puducherry</option>
+            <option>Punjab</option>
+            <option>Rajasthan</option>
+            <option>Sikkim</option>
+            <option>Tamil Nadu</option>
+            <option>Telangana</option>
+            <option>Tripura</option>
+            <option>Uttar Pradesh</option>
+            <option>Uttarakhand</option>
+            <option>West Bengal</option>
+          </select>
+        </div>
       </div>
     </div>
-    <button type="button" id="btn-add-contact" style="background:#1E293B; border: 1px solid rgba(255,255,255,0.08); margin-bottom:12px;">+ Add Contact</button>
+
+    <!-- ── Family Emergency Contacts ────────────────────────── -->
+    <div class="section-card">
+      <div style="display: flex; align-items: center; justify-content: space-between;">
+        <p class="section-title" style="margin: 0;">Family Emergency Contacts</p>
+        <button type="button" id="btn-add-contact"
+                style="background: transparent; border: 1px solid #FF7A00;
+                       color: #FF7A00; padding: 6px 14px; width: auto;
+                       margin-top: 0; font-size: 0.85rem; border-radius: 10px;">
+          + Add
+        </button>
+      </div>
+      <p class="section-sub" style="margin-top: 8px;">You can add up to 5 emergency contacts.</p>
+
+      <div id="family-contacts-container">
+        <div class="family-contact-group">
+          <div class="contact-heading">
+            <span>Contact 1</span>
+            <button type="button" class="btn-remove-contact" aria-label="Remove contact">&times;</button>
+          </div>
+          <label>Name *</label>
+          <input class="reg-fam-name" placeholder="Contact name" />
+          <div class="row-2">
+            <div>
+              <label>Relationship *</label>
+              <select class="reg-fam-rel">
+                <option value="Father/Mother">Father / Mother</option>
+                <option value="Sister/Brother">Sister / Brother</option>
+                <option value="Husband/Wife">Husband / Wife</option>
+                <option value="Son/Daughter">Son / Daughter</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+            <div>
+              <label>Phone Number *</label>
+              <input class="reg-fam-phone" placeholder="10-digit number"
+                     inputmode="numeric" maxlength="10" />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <button type="button" id="btn-activate">Activate QR</button>
   </div>
@@ -233,6 +409,18 @@
     function showModal(msg) {
       document.getElementById('validation-modal-msg').innerText = msg;
       document.getElementById('validation-modal').style.display = 'flex';
+    }
+
+    // HTML-escape untrusted strings before dropping into innerHTML.
+    // Bystander sees data owned by the vehicle owner (name, contacts) —
+    // anything user-controlled must pass through this before innerHTML.
+    function esc(v) {
+      return String(v == null ? '' : v)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
     }
 
     // Checking status on load. A registered, non-expired QR now goes
@@ -276,9 +464,14 @@
         }
         showStep('result');
 
+        // The masked values are user-controlled through the owner's
+        // profile, so HTML-escape before dropping into innerHTML —
+        // otherwise a name like `<img src=x onerror=…>` executes JS
+        // in every bystander's browser.
+        const owner = data.owner || {};
         document.getElementById("owner-line").innerHTML =
-          "<div>Name: " + data.owner.nameMasked + "</div>" +
-          "<div>Mobile: " + data.owner.mobileMasked + "</div>" +
+          "<div>Name: " + esc(owner.nameMasked) + "</div>" +
+          "<div>Mobile: " + esc(owner.mobileMasked) + "</div>" +
           '<div style="margin-top:12px"><button type="button" class="call" data-target="owner">Call owner</button></div>';
 
         const fam = document.getElementById("family-list");
@@ -286,9 +479,11 @@
         (data.family || []).forEach((f) => {
           const div = document.createElement("div");
           div.className = "row";
+          const famId = Number(f.id);
+          const safeIdAttr = Number.isFinite(famId) ? String(famId) : '';
           div.innerHTML =
-            "<span>" + f.relation + " — " + f.phoneMasked + "</span>" +
-            '<button type="button" class="call" data-target="family" data-id="' + f.id + '">Call</button>';
+            "<span>" + esc(f.relation) + " — " + esc(f.phoneMasked) + "</span>" +
+            '<button type="button" class="call" data-target="family" data-id="' + safeIdAttr + '">Call</button>';
           fam.appendChild(div);
         });
 
@@ -434,6 +629,40 @@
       showStep('register');
     };
 
+    // ── Family-contact add/remove ─────────────────────────────
+    // Every contact card gets a Remove (×) button. The FIRST contact
+    // stays visible — clicking × on the only remaining one clears the
+    // fields instead of removing the row, so the form still has one
+    // required contact to submit (matches Flutter form behaviour).
+    function renumberContacts() {
+      const groups = document.querySelectorAll('#family-contacts-container .family-contact-group');
+      groups.forEach((g, i) => {
+        const heading = g.querySelector('.contact-heading span');
+        if (heading) heading.textContent = 'Contact ' + (i + 1);
+      });
+      document.getElementById('btn-add-contact').style.display =
+        groups.length >= 5 ? 'none' : 'inline-block';
+    }
+
+    function attachRemoveHandler(group) {
+      const btn = group.querySelector('.btn-remove-contact');
+      if (!btn) return;
+      btn.addEventListener('click', () => {
+        const container = document.getElementById('family-contacts-container');
+        if (container.querySelectorAll('.family-contact-group').length === 1) {
+          // Last one — clear rather than remove.
+          group.querySelector('.reg-fam-name').value = '';
+          group.querySelector('.reg-fam-phone').value = '';
+          group.querySelector('.reg-fam-rel').value = 'Father/Mother';
+          return;
+        }
+        group.remove();
+        renumberContacts();
+      });
+    }
+    // Wire the initial contact's remove button.
+    attachRemoveHandler(document.querySelector('#family-contacts-container .family-contact-group'));
+
     document.getElementById('btn-add-contact').addEventListener('click', () => {
       const container = document.getElementById('family-contacts-container');
       const groups = container.querySelectorAll('.family-contact-group');
@@ -441,80 +670,174 @@
         showModal("Maximum 5 contacts allowed");
         return;
       }
+      const idx = groups.length + 1;
       const newGroup = document.createElement('div');
       newGroup.className = 'family-contact-group';
-      newGroup.style.position = 'relative';
-      newGroup.style.paddingTop = '10px';
-      newGroup.style.borderTop = '1px dashed rgba(255,255,255,0.1)';
-      newGroup.style.marginTop = '14px';
-      
       newGroup.innerHTML = `
-        <button type="button" class="btn-remove-contact" style="position:absolute; top: 0; right: 0; background: transparent; color: #dc3545; border: none; padding: 5px; width: auto; font-size: 1.4rem; cursor: pointer; margin-top: 0;">&times;</button>
-        <label>Contact Name *</label>
-        <input class="reg-fam-name" placeholder="Name" />
-        <label>Contact Phone *</label>
-        <input class="reg-fam-phone" placeholder="10-digit mobile" inputmode="numeric" />
-        <label>Relationship *</label>
-        <select class="reg-fam-rel">
-          <option value="">Select Relation</option>
-          <option value="Father/Mother">Father / Mother</option>
-          <option value="Sister/Brother">Sister / Brother</option>
-          <option value="Husband/Wife">Husband / Wife</option>
-          <option value="Son/Daughter">Son / Daughter</option>
-          <option value="Other">Other</option>
-        </select>
+        <div class="contact-heading">
+          <span>Contact ${idx}</span>
+          <button type="button" class="btn-remove-contact" aria-label="Remove contact">&times;</button>
+        </div>
+        <label>Name *</label>
+        <input class="reg-fam-name" placeholder="Contact name" />
+        <div class="row-2">
+          <div>
+            <label>Relationship *</label>
+            <select class="reg-fam-rel">
+              <option value="Father/Mother">Father / Mother</option>
+              <option value="Sister/Brother">Sister / Brother</option>
+              <option value="Husband/Wife">Husband / Wife</option>
+              <option value="Son/Daughter">Son / Daughter</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <div>
+            <label>Phone Number *</label>
+            <input class="reg-fam-phone" placeholder="10-digit number"
+                   inputmode="numeric" maxlength="10" />
+          </div>
+        </div>
       `;
       container.appendChild(newGroup);
-      newGroup.querySelector('.btn-remove-contact').addEventListener('click', () => {
-        newGroup.remove();
-        if (container.querySelectorAll('.family-contact-group').length < 5) {
-          document.getElementById('btn-add-contact').style.display = 'block';
+      attachRemoveHandler(newGroup);
+      renumberContacts();
+    });
+
+    // ── Pincode → City/State autofill ─────────────────────────
+    // Same India Post endpoint the Flutter form uses. Debounced 400ms
+    // after typing stops. Token guards against a slow old response
+    // stomping a fresh new lookup.
+    let __pincodeToken = 0;
+    let __pincodeTimer = null;
+    const KNOWN_STATES = new Set(Array.from(
+      document.querySelectorAll('#reg-state option')
+    ).map((o) => o.value).filter(Boolean));
+
+    document.getElementById('reg-pincode').addEventListener('input', (e) => {
+      const value = e.target.value.replace(/\D/g, '').slice(0, 6);
+      e.target.value = value;
+      clearTimeout(__pincodeTimer);
+      if (!/^\d{6}$/.test(value)) return;
+      __pincodeTimer = setTimeout(async () => {
+        const myToken = ++__pincodeToken;
+        const spinner = document.getElementById('reg-pincode-spinner');
+        spinner.classList.remove('hidden');
+        try {
+          const res = await fetch('https://api.postalpincode.in/pincode/' + value);
+          const json = await res.json();
+          if (myToken !== __pincodeToken) return; // superseded by a newer lookup
+          const first = Array.isArray(json) ? json[0] : null;
+          if (!first || first.Status !== 'Success') return;
+          const po = (first.PostOffice || [])[0];
+          if (!po) return;
+          const state = (po.State || '').trim();
+          const city = (po.District || po.Block || po.Name || '').trim();
+          if (KNOWN_STATES.has(state)) {
+            document.getElementById('reg-state').value = state;
+          }
+          const cityField = document.getElementById('reg-city');
+          if (!cityField.value.trim() && city) cityField.value = city;
+        } catch (_) {
+          // Silent — user can still fill in manually.
+        } finally {
+          if (myToken === __pincodeToken) spinner.classList.add('hidden');
         }
-      });
-      if (container.querySelectorAll('.family-contact-group').length >= 5) {
-        document.getElementById('btn-add-contact').style.display = 'none';
-      }
+      }, 400);
+    });
+
+    // Force uppercase on every vehicle-number keystroke — matches the
+    // Flutter form's _UpperCaseFormatter so paste + mobile keyboards
+    // never smuggle lowercase into the regex validation.
+    document.getElementById('reg-vehicle').addEventListener('input', (e) => {
+      const start = e.target.selectionStart;
+      e.target.value = e.target.value.toUpperCase();
+      try { e.target.setSelectionRange(start, start); } catch (_) { /* ignore */ }
     });
 
     document.getElementById('btn-activate').onclick = async () => {
-      const vName = document.getElementById('reg-name').value.trim();
+      const vName    = document.getElementById('reg-name').value.trim();
+      const vEmail   = document.getElementById('reg-email').value.trim();
       const vVehicle = document.getElementById('reg-vehicle').value.trim().toUpperCase();
-      const vRef = document.getElementById('reg-referral').value.trim();
+      const vBlood   = document.getElementById('reg-blood').value.trim();
+      const vRef     = document.getElementById('reg-referral').value.trim();
+      const vAddr1   = document.getElementById('reg-addr1').value.trim();
+      const vAddr2   = document.getElementById('reg-addr2').value.trim();
+      const vPincode = document.getElementById('reg-pincode').value.trim();
+      const vCity    = document.getElementById('reg-city').value.trim();
+      const vState   = document.getElementById('reg-state').value.trim();
 
+      // ── Validation, top-down, matching Flutter form order ────────
       if (!vName) return showModal("Name is required");
-      if (!vRef) return showModal("Referral Code is required");
+
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!vEmail || !emailRegex.test(vEmail)) return showModal("Valid email is required");
 
       const vehicleRegex = /^([A-Z]{2}[0-9]{2}[A-Z]{1,2}[0-9]{4}|[0-9]{2}BH[0-9]{4}[A-Z]{1,2})$/;
       if (!vVehicle || !vehicleRegex.test(vVehicle)) {
         return showModal("Valid Vehicle Number is required (e.g. MH12AB1234 or 22BH1234AA)");
       }
 
+      if (!vBlood) return showModal("Blood group is required");
+      if (!vRef) return showModal("Referral Code is required");
+
+      if (!vAddr1) return showModal("Address Line 1 is required");
+      if (!/^\d{6}$/.test(vPincode)) return showModal("Enter a valid 6-digit pincode");
+      if (!vCity) return showModal("City is required");
+      if (!vState) return showModal("State is required");
+
       const groups = document.querySelectorAll('.family-contact-group');
       if (groups.length === 0) return showModal("At least 1 Family Contact is required");
-      
+
       const family = [];
       for (const group of groups) {
         const fn = group.querySelector('.reg-fam-name').value.trim();
         const fp = group.querySelector('.reg-fam-phone').value.trim();
         const fr = group.querySelector('.reg-fam-rel').value.trim();
-        
+
         if (!fn) return showModal("Contact Name is required for all contacts");
-        if (fp.length !== 10) return showModal("Please enter a valid 10-digit mobile number for contacts");
+        if (fp.length !== 10 || !/^\d{10}$/.test(fp)) {
+          return showModal("Please enter a valid 10-digit mobile number for contacts");
+        }
         if (!fr) return showModal("Relation is required");
-        
+
         family.push({ name: fn, phone: fp, relation: fr });
       }
 
       const btn = document.getElementById('btn-activate');
       btn.disabled = true;
+      const origLabel = btn.textContent;
+      btn.textContent = 'Checking vehicle…';
+
+      // Vehicle already exists? Same pre-submit guard the Flutter form
+      // uses — cheap 200 lookup that surfaces "already registered" up
+      // front instead of after they wait for the full activation POST.
+      try {
+        const chkRes = await fetch(base + '/qr/check-vehicle/' + encodeURIComponent(vVehicle));
+        const chk = await chkRes.json().catch(() => ({}));
+        if (chkRes.ok && chk && chk.exists === true) {
+          btn.disabled = false;
+          btn.textContent = origLabel;
+          return showModal('Vehicle already exists in system.');
+        }
+      } catch (_) {
+        // Silent — the server-side create will still validate uniquely.
+      }
+
+      btn.textContent = 'Activating…';
 
       const payload = {
         mobile: window.__regMobile,
         name: vName,
-        email: document.getElementById('reg-email').value.trim(),
+        email: vEmail,
         vehicle_number: vVehicle,
+        blood_group: vBlood,
         referralCode: vRef,
-        family: family
+        shipping_address_line1: vAddr1,
+        shipping_address_line2: vAddr2 || null,
+        shipping_city: vCity,
+        shipping_state: vState,
+        shipping_pincode: vPincode,
+        family: family,
       };
 
       try {
@@ -527,6 +850,7 @@
         if (!res.ok) {
           showModal(data.error || "Activation failed");
           btn.disabled = false;
+          btn.textContent = origLabel;
           return;
         }
 
@@ -541,6 +865,7 @@
       } catch (e) {
         showModal("Network error");
         btn.disabled = false;
+        btn.textContent = origLabel;
       }
     };
   </script>

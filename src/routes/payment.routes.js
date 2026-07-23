@@ -36,13 +36,22 @@ router.post('/razorpay/order', requireAuth, async (req, res) => {
       currency: order.currency || 'INR',
     });
     console.log(`[payments/order] OK user=${req.userId} order=${order.id} amount=${order.amount} vehicle=${vehicle_number}`);
+    // Refuse to boot the checkout flow without a real Razorpay key —
+    // the old `demo_mode: true` fallback let the client simulate a
+    // successful payment with `pay_dev_*` signatures, which is a
+    // hard "no" for production. If the key is missing, fail loudly.
+    if (!config.razorpayKeyId) {
+      console.error('[payments/order] RAZORPAY_KEY_ID missing — refusing to create order');
+      return res.status(500).json({
+        error: 'Payment gateway not configured. Please contact support.',
+      });
+    }
     return res.json({
       order_id: order.id,
       amount: order.amount,                    // what Razorpay will charge
       intended_amount: order.intended_amount,  // what the UI should display
       currency: order.currency,
-      key_id: config.razorpayKeyId || 'rzp_test_dev',
-      demo_mode: !config.razorpayKeyId,
+      key_id: config.razorpayKeyId,
     });
   } catch (e) {
     const code = e.statusCode || 500;

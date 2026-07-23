@@ -32,9 +32,8 @@ router.post(
         smsResult = { ok: false, error: e.message || 'sms_error' };
       }
       if (smsResult && smsResult.ok === false && smsResult.reason !== 'not_configured') {
-        // Provider is configured but the send actually failed. Don't
-        // pretend it worked. The DEV_STATIC_OTP escape hatch is
-        // unaffected — those users can still log in with 1234.
+        // Provider is configured but the send actually failed — return
+        // 503 so the client can retry rather than pretending success.
         console.error('[auth/login] SMS dispatch reported failure', smsResult);
         return res.status(503).json({
           error: 'Could not deliver OTP right now — please try again in a moment',

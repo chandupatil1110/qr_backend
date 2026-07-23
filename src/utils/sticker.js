@@ -290,14 +290,18 @@ function buildStickerSvg({ qrPngB64, digits, showVehicle, vehicleNumber }) {
 // its icon just to the left) guarantees "support@qr4emergency.com" fits
 // even at font-size 12 without running off the sticker edge.
 function footerRow1(y) {
-  const leftIconX = 16;
+  const leftIconX = 14;
   const leftTextX = leftIconX + 20;
   const emailText = 'support@qr4emergency.com';
-  // Approximate email string width at font-size 12 Arial ≈ 155.
-  // Icon (14) + 6 gap = 20 to the left of the text.
-  const rightTextRight = W - 16;
-  const rightIconX = rightTextRight - 155 - 20;
-  const rightTextX = rightIconX + 20;
+  // Email is right-anchored (text-anchor="end") so the closing ".com"
+  // is guaranteed to sit against the right margin regardless of the
+  // font's actual rendered width. The mail icon is positioned to the
+  // left of an approximate 175px text extent so the icon-to-text gap
+  // stays visually consistent; a small under-estimate here just means
+  // the icon sits slightly closer to the text, never that text clips.
+  const rightTextRight = W - 14;
+  const estEmailWidth = 175;
+  const rightIconX = rightTextRight - estEmailWidth - 20;
   return `
     ${iconGlobe(leftIconX, y - 10, 14, WHITE)}
     <text x="${leftTextX}" y="${y + 2}" text-anchor="start"
@@ -305,7 +309,7 @@ function footerRow1(y) {
           font-size="12" fill="${WHITE}">www.qr4emergency.com</text>
 
     ${iconMail(rightIconX, y - 10, 14, WHITE)}
-    <text x="${rightTextX}" y="${y + 2}" text-anchor="start"
+    <text x="${rightTextRight}" y="${y + 2}" text-anchor="end"
           font-family="${BODY_FAMILY}" font-weight="600"
           font-size="12" fill="${WHITE}">${emailText}</text>
   `;

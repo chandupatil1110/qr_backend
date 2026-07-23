@@ -172,17 +172,6 @@ router.delete('/contacts/:id', requireAuth, async (req, res) => {
   }
 });
 
-// GET list of all users (for notification admin lookup)
-router.get('/users', requireAuth, async (req, res) => {
-  try {
-    const r = await pool.query('SELECT id, name, mobile, email FROM users ORDER BY name ASC');
-    return res.json({ items: r.rows });
-  } catch (err) {
-    console.error('Error fetching users:', err);
-    return res.status(500).json({ error: err.message });
-  }
-});
-
 // POST update current user's device token
 router.post('/device-token', requireAuth,
   body('deviceToken').trim().notEmpty().withMessage('deviceToken is required'),

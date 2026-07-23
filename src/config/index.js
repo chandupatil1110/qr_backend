@@ -2,7 +2,15 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-console.log("DB URL:", process.env.DATABASE_URL);
+// Log only the DB host — full DATABASE_URL contains the password and
+// Railway/Render logs are readable to anyone with dashboard access.
+try {
+  const u = new URL(process.env.DATABASE_URL || '');
+  console.log(`[config] db host=${u.hostname} db=${u.pathname.replace(/^\//, '')}`);
+} catch (_) {
+  console.log('[config] db url not set');
+}
+
 export const config = {
   port: parseInt(process.env.PORT || '3000', 10),
   nodeEnv: process.env.NODE_ENV || 'development',
@@ -18,13 +26,6 @@ export const config = {
   // unsigned events.
   razorpayWebhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET || '',
   publicAppUrl: (process.env.PUBLIC_APP_URL || 'http://localhost:3000').replace(/\/$/, ''),
-  // Temporary static OTP accepted alongside real per-mobile OTPs so the
-  // team can log in while an SMS provider is still being picked. When
-  // this is set, every user can log in with either the real OTP that
-  // would have been SMS'd OR this fixed code. Unset it (or set to '')
-  // the moment a live SMS provider goes into SMS_PROVIDER — otherwise
-  // any attacker who guesses this code owns every account.
-  devStaticOtp: (process.env.DEV_STATIC_OTP || '').trim(),
   // SMTP config for transactional email (invoice on QR activation). All
   // values are optional at boot — if any are missing the mail service
   // silently no-ops. Gmail SMTP: host smtp.gmail.com, port 465, secure=true,
@@ -65,18 +66,6 @@ export const config = {
     platformFeePaise: parseInt(process.env.PLATFORM_FEE_PAISE || '49900', 10),
     shippingFeePaise: parseInt(process.env.SHIPPING_FEE_PAISE || '5000', 10),
   },
-  // Live-mode smoke test override. When set to a positive integer (in
-  // paise), every Razorpay order is created with THIS amount instead
-  // of whatever the caller requested — a way to validate the live
-  // credential + full payment round-trip while charging only ₹1.
-  // Unset it (or set to '') the moment testing is done — otherwise
-  // every real customer is charged the test amount instead of ₹299.
-  testChargeAmountPaise: (() => {
-    const raw = (process.env.TEST_CHARGE_AMOUNT_PAISE || '').trim();
-    if (!raw) return 0;
-    const n = parseInt(raw, 10);
-    return Number.isFinite(n) && n > 0 ? n : 0;
-  })(),
   // Home-page promo video. Point PROMO_VIDEO_URL at any HTTPS MP4 (Supabase
   // Storage signed URL, S3, CloudFront, etc.). If unset, the app hides the
   // section — safe default for local dev.
@@ -123,7 +112,20 @@ export const config = {
 };
 
 export function assertConfig() {
-  if (!config.databaseUrl && process.env.NODE_ENV === 'production') {
+  // "Prod-like" = anything that isn't a local developer laptop. On
+  // Railway/Render both NODE_ENV=production AND the presence of the
+  // hosting platform's own env vars indicate prod. This catches the
+  // dangerous case of deploying with NODE_ENV=development left in the
+  // committed .env — otherwise every safeguard below silently passes.
+  const isProdLike =
+    process.env.NODE_ENV === 'production' ||
+    !!process.env.RAILWAY_ENVIRONMENT ||
+    !!process.env.RENDER ||
+    !!process.env.RENDER_SERVICE_ID ||
+    !!process.env.FLY_APP_NAME ||
+    !!process.env.HEROKU_APP_NAME;
+
+  if (!config.databaseUrl && isProdLike) {
     throw new Error('DATABASE_URL is required in production');
   }
   if (!config.databaseUrl) {
@@ -132,7 +134,7 @@ export function assertConfig() {
   // Refuse to boot with the dev-only JWT secret in production — otherwise
   // an env var typo silently signs tokens with a public string and anyone
   // can forge admin tokens.
-  if (process.env.NODE_ENV === 'production') {
+  if (isProdLike) {
     const secret = process.env.JWT_SECRET || '';
     // Common weak values that would boot without complaint but are
     // effectively public. Reject any of them, plus anything under 32
@@ -149,20 +151,36 @@ export function assertConfig() {
     }
   }
 
-  // Prod-mode escape hatches that must NEVER be active with real users.
-  // Refuse to boot rather than silently backdoor everyone's account or
-  // charge everyone ₹1 instead of the real subscription price.
-  if (process.env.NODE_ENV === 'production') {
-    if (config.devStaticOtp) {
+  // DEV_STATIC_OTP used to be a "type 1234 to log in as anyone" backdoor
+  // for dev-time convenience. The whole path has been removed, but if
+  // the env var is still set on a hosted deploy, warn loudly so the
+  // operator knows to remove the value from their env config.
+  if (process.env.DEV_STATIC_OTP) {
+    if (isProdLike) {
       throw new Error(
-        'DEV_STATIC_OTP must be unset in production — refusing to boot with a shared login backdoor.'
+        'DEV_STATIC_OTP is set but the login-backdoor code path has been removed. ' +
+          'Delete this env var — it does nothing now and is misleading.'
       );
     }
-    if (config.testChargeAmountPaise > 0) {
+    console.warn(
+      '[config] DEV_STATIC_OTP is set but the login-backdoor code path was removed. ' +
+        'Delete this env var from your .env — real OTP is the only login path now.'
+    );
+  }
+  // TEST_CHARGE_AMOUNT_PAISE used to override every Razorpay order
+  // amount for smoke-testing. Path removed; if still set as an env
+  // var, warn (or hard-fail on hosted deploys).
+  if (process.env.TEST_CHARGE_AMOUNT_PAISE) {
+    if (isProdLike) {
       throw new Error(
-        `TEST_CHARGE_AMOUNT_PAISE=${config.testChargeAmountPaise} must be unset in production — refusing to boot with a payment-amount override.`
+        'TEST_CHARGE_AMOUNT_PAISE is set but the payment-override code path ' +
+          'has been removed. Delete this env var — it does nothing now.'
       );
     }
+    console.warn(
+      '[config] TEST_CHARGE_AMOUNT_PAISE is set but the payment-override ' +
+        'code path was removed. Delete this env var.'
+    );
   }
 
   // Renewal amount sanity check. Below 100 paise (₹1) is Razorpay's own
@@ -172,24 +190,6 @@ export function assertConfig() {
   if (!Number.isFinite(config.renewal.amountPaise) || config.renewal.amountPaise < 100) {
     throw new Error(
       `RENEWAL_AMOUNT_PAISE=${config.renewal.amountPaise} is below Razorpay minimum (100 paise / ₹1)`
-    );
-  }
-  // Loud warning if the static-OTP escape hatch is enabled — so we don't
-  // silently ship a "1234 works for everyone" backdoor into production.
-  if (config.devStaticOtp) {
-    console.warn(
-      `[config] WARNING: DEV_STATIC_OTP is set to "${config.devStaticOtp}". ` +
-      `Every user can log in with this code. Unset it once SMS_PROVIDER is live.`
-    );
-  }
-  // Same loud warning for the payment override — real customers would
-  // otherwise be charged ₹1 (or whatever this is) instead of the real
-  // subscription price. This is a debug knob, not a production feature.
-  if (config.testChargeAmountPaise > 0) {
-    console.warn(
-      `[config] WARNING: TEST_CHARGE_AMOUNT_PAISE=${config.testChargeAmountPaise} ` +
-      `— EVERY Razorpay order will charge this amount, not the real price. ` +
-      `Unset when you're done testing.`
     );
   }
 }

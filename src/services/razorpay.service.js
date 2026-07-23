@@ -42,46 +42,23 @@ export async function createOrder(amountPaise = DEFAULT_AMOUNT_PAISE, receipt = 
     err.statusCode = 400;
     throw err;
   }
-  // TEST_CHARGE_AMOUNT_PAISE lets us validate the live gateway with a
-  // tiny real charge (e.g., ₹1) while all upstream code + UI keeps
-  // reasoning about the real price. Actual amount sent to Razorpay is
-  // this override; the return value exposes both so the frontend can
-  // show "Pay ₹299" while charging ₹1.
-  const amt = config.testChargeAmountPaise > 0
-    ? config.testChargeAmountPaise
-    : requested;
 
-  // Dev-only fake order path — only used when ALLOW_FAKE_PAYMENT=true AND no
-  // key is configured. In every other case we hit Razorpay for real.
-  if (
-    process.env.ALLOW_FAKE_PAYMENT === 'true' &&
-    config.nodeEnv === 'development' &&
-    !config.razorpayKeyId
-  ) {
-    return {
-      id: `order_dev_${Date.now()}`,
-      amount: amt,
-      intended_amount: requested,
-      currency: 'INR',
-      receipt,
-    };
-  }
   const rz = getClient();
   if (!rz) {
     const err = new Error('Razorpay is not configured. Set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET.');
     err.statusCode = 503;
     throw err;
   }
-  // Structured entry log so every order creation is traceable in Render
-  // logs — search for `[razorpay/order]` to see the full lifecycle of
-  // any payment. `requested` and `amt` may differ when the test-charge
-  // override is active; both are logged for reconciliation.
+  // Structured entry log so every order creation is traceable in the
+  // hosting logs — search for `[razorpay/order]` to see the full
+  // lifecycle of any payment. Customers are always charged the real
+  // requested amount; no override paths remain.
   console.log(
-    `[razorpay/order] creating amount=${amt} (intended=${requested}) receipt=${receipt} live=${String(config.razorpayKeyId || '').startsWith('rzp_live_')}`
+    `[razorpay/order] creating amount=${requested} receipt=${receipt} live=${String(config.razorpayKeyId || '').startsWith('rzp_live_')}`
   );
   try {
     const order = await rz.orders.create({
-      amount: amt,
+      amount: requested,
       currency: 'INR',
       receipt,
       payment_capture: 1,
@@ -89,9 +66,9 @@ export async function createOrder(amountPaise = DEFAULT_AMOUNT_PAISE, receipt = 
     console.log(
       `[razorpay/order] created order_id=${order.id} amount=${order.amount} status=${order.status || 'unknown'}`
     );
-    // Attach intended_amount so callers can show the real price on the
-    // UI while Razorpay itself will charge order.amount (which equals
-    // the test override when active).
+    // `intended_amount` still returned for API-compat with callers that
+    // expected it during the test-override era; it now always matches
+    // `amount`.
     return { ...order, intended_amount: requested };
   } catch (err) {
     // Log the RAW Razorpay error before wrapping so we can see exactly
@@ -147,15 +124,6 @@ function safeEqualHex(a, b) {
 }
 
 export function verifyPaymentSignature(orderId, paymentId, signature) {
-  // Dev-mode fake payment stays honest even when disabled — we STILL
-  // require ALLOW_FAKE_PAYMENT=true, otherwise every request would auto-verify.
-  if (
-    process.env.ALLOW_FAKE_PAYMENT === 'true' &&
-    config.nodeEnv === 'development'
-  ) {
-    console.log(`[razorpay/verify] dev-mode fake payment accepted order=${orderId}`);
-    return true;
-  }
   if (!config.razorpayKeySecret) {
     console.error(`[razorpay/verify] REJECTED — RAZORPAY_KEY_SECRET not configured order=${orderId}`);
     return false;

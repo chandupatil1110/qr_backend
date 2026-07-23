@@ -462,20 +462,28 @@
             : (row.is_active
                 ? '<span class="pill active">AWAITING</span>'
                 : '<span class="pill dead">DEACTIVATED</span>');
+          // ALL user-controlled data (owner_name, vehicle_number,
+          // referral_code, digits, mobile) is HTML-escaped before
+          // being dropped into innerHTML — otherwise a customer whose
+          // name contains `<script>` would execute JS in the admin's
+          // browser and steal the admin API key from localStorage.
           const activatedBy = row.activated_by_mobile
-            ? `${row.owner_name || ''} <span class="muted">(${row.activated_by_mobile})</span>`
+            ? `${esc(row.owner_name || '')} <span class="muted">(${esc(row.activated_by_mobile)})</span>`
             : '<span class="muted">—</span>';
-          const vehicle = row.vehicle_number || '<span class="muted">—</span>';
-          const btn = row.is_active
-            ? `<button class="danger" onclick="deactivate(${row.id})">Deactivate</button>`
+          const vehicle = row.vehicle_number
+            ? esc(row.vehicle_number)
+            : '<span class="muted">—</span>';
+          const rowId = Number(row.id);
+          const btn = row.is_active && Number.isFinite(rowId)
+            ? `<button class="danger" onclick="deactivate(${rowId})">Deactivate</button>`
             : '';
           return `<tr>
-            <td><span class="code">${row.digits}</span></td>
-            <td><span class="code">${row.referral_code}</span></td>
+            <td><span class="code">${esc(row.digits)}</span></td>
+            <td><span class="code">${esc(row.referral_code)}</span></td>
             <td>${status}</td>
             <td>${activatedBy}</td>
             <td>${vehicle}</td>
-            <td class="muted">${fmtDate(row.created_at)}</td>
+            <td class="muted">${esc(fmtDate(row.created_at))}</td>
             <td>${btn}</td>
           </tr>`;
         }).join('');
@@ -486,8 +494,18 @@
       $('prev-btn').disabled = state.offset === 0;
       $('next-btn').disabled = state.offset + state.limit >= state.total;
     } catch (e) {
-      $('tbody').innerHTML = `<tr><td colspan="7" class="err" style="text-align:center; padding: 24px;">${e.message}</td></tr>`;
+      $('tbody').innerHTML = `<tr><td colspan="7" class="err" style="text-align:center; padding: 24px;">${esc(e.message)}</td></tr>`;
     }
+  }
+
+  // HTML-escape untrusted strings before dropping into innerHTML.
+  function esc(v) {
+    return String(v == null ? '' : v)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 
   async function deactivate(id) {
