@@ -25,34 +25,17 @@ app.set('trust proxy', 1);
 // those pages ourselves so a bespoke CSP is safe to skip for now.
 app.use(helmet({ contentSecurityPolicy: false }));
 
-// CORS — API is called by the mobile app (no browser origin), by the
-// bystander-facing alert page served from OUR OWN backend, and by the
-// admin panel also on this backend. So the only browser origins that
-// legitimately hit /api/* are our own; everything else should be
-// blocked. Additional origins (staging web) can be added via the
-// CORS_ORIGINS env var, comma-separated.
-const staticOrigins = [
-  'https://qrbackend-production-f691.up.railway.app',
-  'https://pi-backend-qkjh.onrender.com',
-];
-const extraOrigins = (process.env.CORS_ORIGINS || '')
-  .split(',')
-  .map((s) => s.trim())
-  .filter(Boolean);
-const allowedOrigins = new Set([...staticOrigins, ...extraOrigins]);
-app.use(
-  cors({
-    origin: (origin, cb) => {
-      // Mobile app / server-to-server calls have no Origin header —
-      // let them through. Browsers always send one, and we allow-list
-      // only our own hosts.
-      if (!origin) return cb(null, true);
-      if (allowedOrigins.has(origin)) return cb(null, true);
-      return cb(new Error(`CORS: origin ${origin} not allowed`));
-    },
-    credentials: true,
-  })
-);
+// CORS — permissive. Safe because auth is JWT in the Authorization
+// header (not cookies), so classic CSRF doesn't apply. Callers:
+//   • Flutter mobile app (no Origin header — always allowed anyway)
+//   • Flutter Web at any localhost port during dev
+//   • Bystander-facing alert page served from OUR own backend
+//   • Admin panel also on this backend
+//   • Any future web checkout / partner page
+// Restricting the origin allow-list broke Flutter Web dev on
+// http://localhost:<random> and some Android WebView Origin headers,
+// so we're intentionally back to open CORS.
+app.use(cors());
 
 // Razorpay's webhook body must be HMAC-verified against the EXACT bytes
 // Razorpay signed. If express.json() runs first it consumes the stream
