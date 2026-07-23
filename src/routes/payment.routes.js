@@ -2,10 +2,29 @@ import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.js';
 import { createOrder, DEFAULT_AMOUNT_PAISE } from '../services/razorpay.service.js';
 import { config } from '../config/index.js';
+import { pool } from '../db/pool.js';
 import { getQrByVehicleNumber } from '../services/qr.service.js';
 import { recordOrderCreated, getPaymentStatus, trackClientEvent } from '../services/payment.service.js';
 
 const router = Router();
+
+// Internal test mobiles — Razorpay charges these accounts ₹1 for QR
+// create instead of ₹549 so the founder can validate the live gateway
+// end-to-end without burning real money on every retry. The UI still
+// shows ₹549 (we override only the actual charge, not the displayed
+// price). Numbers are compared against the LAST 10 DIGITS of the
+// user's registered mobile, so both `9876543210` and `+919876543210`
+// forms match. Keep this list SHORT.
+const DISCOUNTED_TEST_MOBILES = new Set([
+  '8857846064',
+  '7972617154',
+]);
+const DISCOUNTED_CHARGE_PAISE = 100; // ₹1
+
+function normalizedMobile(raw) {
+  const digits = String(raw || '').replace(/\D/g, '');
+  return digits.length >= 10 ? digits.slice(-10) : digits;
+}
 
 /** Create Razorpay order for QR subscription (test mode). */
 router.post('/razorpay/order', requireAuth, async (req, res) => {
@@ -22,8 +41,41 @@ router.post('/razorpay/order', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'Given Vehicle is already in system' });
     }
 
-    const amount = req.body?.amount_paise ? parseInt(req.body.amount_paise, 10) : DEFAULT_AMOUNT_PAISE;
-    const order = await createOrder(Number.isFinite(amount) ? amount : DEFAULT_AMOUNT_PAISE);
+    const requestedIntended = req.body?.amount_paise
+      ? parseInt(req.body.amount_paise, 10)
+      : DEFAULT_AMOUNT_PAISE;
+    const intended = Number.isFinite(requestedIntended)
+      ? requestedIntended
+      : DEFAULT_AMOUNT_PAISE;
+
+    // Whitelist check — look up the current user's mobile and, if it's
+    // one of the internal test numbers, drop the actual Razorpay charge
+    // to ₹1 while keeping the UI amount at ₹549 (intended). Only the
+    // charge (`chargePaise`) differs; everything downstream — invoice,
+    // audit row's `intendedAmountPaise` — records the real ₹549 price.
+    let chargePaise = intended;
+    try {
+      const userRow = await pool.query(
+        'SELECT mobile FROM users WHERE id = $1',
+        [req.userId]
+      );
+      const mob = normalizedMobile(userRow.rows[0]?.mobile);
+      if (mob && DISCOUNTED_TEST_MOBILES.has(mob)) {
+        chargePaise = DISCOUNTED_CHARGE_PAISE;
+        console.log(
+          `[payments/order] test-mobile discount applied user=${req.userId} mobile=…${mob.slice(-4)} charge=${chargePaise} intended=${intended}`
+        );
+      }
+    } catch (lookupErr) {
+      // Non-fatal — if the mobile lookup fails for any reason, charge
+      // the real price. Never fail-open the OTHER way (charging ₹1 to
+      // a real customer because we couldn't verify who they were).
+      console.warn(
+        `[payments/order] mobile lookup failed user=${req.userId} — charging full price. err=${lookupErr.message}`
+      );
+    }
+
+    const order = await createOrder(chargePaise, undefined, intended);
     // Fire-and-forget audit row. qr_id is null here — the qrdata row
     // doesn't exist yet; /qr/create will link it after signature verify.
     recordOrderCreated({

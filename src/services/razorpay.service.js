@@ -29,7 +29,11 @@ export const DEFAULT_AMOUNT_PAISE = 54900;
 /** Razorpay's own minimum. Sending less returns 400 BAD_REQUEST_ERROR. */
 export const MIN_AMOUNT_PAISE = 100;
 
-export async function createOrder(amountPaise = DEFAULT_AMOUNT_PAISE, receipt = `rcpt_${Date.now()}`) {
+export async function createOrder(
+  amountPaise = DEFAULT_AMOUNT_PAISE,
+  receipt = `rcpt_${Date.now()}`,
+  intendedPaise = null,
+) {
   // Amount validation — cheaper to fail here than after a network round trip.
   const requested = Number(amountPaise);
   if (!Number.isFinite(requested) || !Number.isInteger(requested)) {
@@ -42,6 +46,12 @@ export async function createOrder(amountPaise = DEFAULT_AMOUNT_PAISE, receipt = 
     err.statusCode = 400;
     throw err;
   }
+  // Optional per-caller "intended amount" so a discounted charge can
+  // still show the real price on the UI. Falls back to the actual
+  // charge when the caller doesn't pass one.
+  const intended = Number.isFinite(Number(intendedPaise))
+    ? Number(intendedPaise)
+    : requested;
 
   const rz = getClient();
   if (!rz) {
@@ -51,10 +61,11 @@ export async function createOrder(amountPaise = DEFAULT_AMOUNT_PAISE, receipt = 
   }
   // Structured entry log so every order creation is traceable in the
   // hosting logs — search for `[razorpay/order]` to see the full
-  // lifecycle of any payment. Customers are always charged the real
-  // requested amount; no override paths remain.
+  // lifecycle of any payment. `intended` != `requested` when a caller
+  // routed the user through a discounted charge (e.g. whitelisted
+  // internal test mobiles paying ₹1); both are logged for audit.
   console.log(
-    `[razorpay/order] creating amount=${requested} receipt=${receipt} live=${String(config.razorpayKeyId || '').startsWith('rzp_live_')}`
+    `[razorpay/order] creating amount=${requested} intended=${intended} receipt=${receipt} live=${String(config.razorpayKeyId || '').startsWith('rzp_live_')}`
   );
   try {
     const order = await rz.orders.create({
@@ -66,10 +77,7 @@ export async function createOrder(amountPaise = DEFAULT_AMOUNT_PAISE, receipt = 
     console.log(
       `[razorpay/order] created order_id=${order.id} amount=${order.amount} status=${order.status || 'unknown'}`
     );
-    // `intended_amount` still returned for API-compat with callers that
-    // expected it during the test-override era; it now always matches
-    // `amount`.
-    return { ...order, intended_amount: requested };
+    return { ...order, intended_amount: intended };
   } catch (err) {
     // Log the RAW Razorpay error before wrapping so we can see exactly
     // what the gateway said. Without this, our wrapped 502 hides the
