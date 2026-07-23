@@ -135,7 +135,10 @@ export function assertConfig() {
   // an env var typo silently signs tokens with a public string and anyone
   // can forge admin tokens.
   if (isProdLike) {
-    const secret = process.env.JWT_SECRET || '';
+    // Trim so a paste-with-trailing-space in the Railway/Render env
+    // editor doesn't get flagged as a different-but-still-weak value.
+    // These platforms preserve whatever whitespace you paste in.
+    const secret = (process.env.JWT_SECRET || '').trim();
     // Common weak values that would boot without complaint but are
     // effectively public. Reject any of them, plus anything under 32
     // characters (well below the strength of an HMAC-SHA256 key).
@@ -143,43 +146,51 @@ export function assertConfig() {
       '', 'dev-only-change-me', 'your-secret-key-change-this',
       'secret', 'changeme', 'change-me',
     ]);
-    if (WEAK.has(secret) || secret.length < 32) {
+    // Diagnostic fingerprint so you can see WHY the guard fired without
+    // ever printing the actual secret value. Prints length + first-4 +
+    // last-4 characters.
+    const fp = secret
+      ? `len=${secret.length} fp=${secret.slice(0, 4)}…${secret.slice(-4)}`
+      : 'MISSING (empty or unset)';
+    if (!secret) {
       throw new Error(
-        'JWT_SECRET is missing or too weak for production. ' +
-          'Set a random ≥32-char string (e.g. `openssl rand -hex 32`).'
+        `JWT_SECRET is empty in this process. ` +
+          `Railway/Render env vars are set on the platform dashboard — ` +
+          `not read from the .env file in the repo. ` +
+          `Set JWT_SECRET on the platform Variables tab to a random ` +
+          `≥32-char string (e.g. \`openssl rand -hex 32\`).`
       );
     }
+    if (WEAK.has(secret)) {
+      throw new Error(
+        `JWT_SECRET matches a known weak/placeholder value (${fp}). ` +
+          `Set it to a random ≥32-char string (e.g. \`openssl rand -hex 32\`).`
+      );
+    }
+    if (secret.length < 32) {
+      throw new Error(
+        `JWT_SECRET is too short — ${fp}. Needs to be at least 32 chars. ` +
+          `Generate one with \`openssl rand -hex 32\`.`
+      );
+    }
+    console.log(`[config] JWT_SECRET loaded ok (${fp})`);
   }
 
-  // DEV_STATIC_OTP used to be a "type 1234 to log in as anyone" backdoor
-  // for dev-time convenience. The whole path has been removed, but if
-  // the env var is still set on a hosted deploy, warn loudly so the
-  // operator knows to remove the value from their env config.
-  if (process.env.DEV_STATIC_OTP) {
-    if (isProdLike) {
-      throw new Error(
-        'DEV_STATIC_OTP is set but the login-backdoor code path has been removed. ' +
-          'Delete this env var — it does nothing now and is misleading.'
-      );
-    }
+  // DEV_STATIC_OTP + TEST_CHARGE_AMOUNT_PAISE + ALLOW_FAKE_PAYMENT used
+  // to be bypass paths. All three code paths were fully removed — the
+  // env vars are now no-ops. If they're still set on a hosted deploy,
+  // warn but don't block boot (blocking would just interrupt users for
+  // a config-hygiene issue with zero security consequence).
+  const deadEnvVars = [
+    'DEV_STATIC_OTP',
+    'TEST_CHARGE_AMOUNT_PAISE',
+    'ALLOW_FAKE_PAYMENT',
+  ].filter((k) => process.env[k]);
+  if (deadEnvVars.length) {
     console.warn(
-      '[config] DEV_STATIC_OTP is set but the login-backdoor code path was removed. ' +
-        'Delete this env var from your .env — real OTP is the only login path now.'
-    );
-  }
-  // TEST_CHARGE_AMOUNT_PAISE used to override every Razorpay order
-  // amount for smoke-testing. Path removed; if still set as an env
-  // var, warn (or hard-fail on hosted deploys).
-  if (process.env.TEST_CHARGE_AMOUNT_PAISE) {
-    if (isProdLike) {
-      throw new Error(
-        'TEST_CHARGE_AMOUNT_PAISE is set but the payment-override code path ' +
-          'has been removed. Delete this env var — it does nothing now.'
-      );
-    }
-    console.warn(
-      '[config] TEST_CHARGE_AMOUNT_PAISE is set but the payment-override ' +
-        'code path was removed. Delete this env var.'
+      `[config] These env vars are set but the code paths behind them ` +
+        `have been removed — they do nothing now: ${deadEnvVars.join(', ')}. ` +
+        `Delete them from your Railway/Render env config to reduce clutter.`
     );
   }
 
