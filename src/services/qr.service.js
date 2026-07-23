@@ -3,7 +3,7 @@ import { pool } from '../db/pool.js';
 import { config } from '../config/index.js';
 import { verifyPaymentSignature } from './razorpay.service.js';
 import { sendInvoiceEmail } from './mail.service.js';
-import { sendQrCreated } from './sms.service.js';
+import { sendQrCreated, sendQrSuccess } from './sms.service.js';
 import { markPaymentVerified, markPaymentFailed } from './payment.service.js';
 
 // Client-facing relation groups. Stored verbatim in family_details.relation.
@@ -261,6 +261,17 @@ export async function createQrRecord({
       owner_number: qr.mobile,
     }).catch((e) =>
       console.error('[qr/service] sendQrCreated rejected unexpectedly:', e)
+    );
+
+    // Companion SMS: "Dear {name}, your QR was created successfully.
+    // Please log in to the app to download and place it on your
+    // vehicle." Fires alongside sendQrCreated because DLT registered
+    // both templates as part of the activation flow.
+    sendQrSuccess({
+      mobile: qr.mobile,
+      owner_name: qr.name,
+    }).catch((e) =>
+      console.error('[qr/service] sendQrSuccess rejected unexpectedly:', e)
     );
 
     return { ...qr, alertUrl };
