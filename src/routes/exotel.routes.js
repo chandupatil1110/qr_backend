@@ -21,7 +21,7 @@ const SPAM_NOTIFY_THRESHOLD = 5;
 //                       so we can pick a different Exophone for
 //                       outgoing deliverability without touching what
 //                       bystanders dial.
-const BRIDGE_NUMBER = '07948503110';
+const BRIDGE_NUMBER = '02048563508';
 const OUTGOING_EXOPHONE = '07948503110';
 const MAX_RINGING_DURATION_SEC = 45;
 const MAX_CONVERSATION_DURATION_SEC = 120;
