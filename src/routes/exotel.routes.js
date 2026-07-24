@@ -79,6 +79,7 @@ router.get('/lookup', async (req, res) => {
   });
 
   if (!digits) {
+    console.warn(`[exotel/lookup] CUT — no digits received CallSid=${callSid} from=${fromNumber || callerNumberRaw}`);
     return res.status(404).json({ error: 'digits required' });
   }
 
@@ -106,11 +107,27 @@ router.get('/lookup', async (req, res) => {
     );
 
     if (!result.rows.length) {
+      console.warn(`[exotel/lookup] CUT — unknown or inactive digits=${digits} CallSid=${callSid}`);
       return res.status(404).json({ error: 'unknown code' });
     }
 
     const row = result.rows[0];
     const family = Array.isArray(row.family_contacts) ? row.family_contacts : [];
+    const ageMinutes = row.selected_at
+      ? (Date.now() - new Date(row.selected_at).getTime()) / (1000 * 60)
+      : null;
+
+    // One-line lookup context so every routing decision is grep-able in
+    // Railway logs. Search `[exotel/lookup] ctx` to see who called, which
+    // QR, which contact was selected, how old the selection is, and how
+    // many family members are on record.
+    console.log(
+      `[exotel/lookup] ctx CallSid=${callSid} digits=${digits} qr_id=${row.id} ` +
+      `selected_kind=${row.selected_contact_kind || '(none)'} ` +
+      `selected_family_id=${row.selected_family_id ?? '(none)'} ` +
+      `selection_age_min=${ageMinutes === null ? 'null' : ageMinutes.toFixed(1)} ` +
+      `family_count=${family.length}`
+    );
 
     // Build the ringing list based on what the bystander tapped on the
     // alert page. Selection is authoritative — we honor it literally so
@@ -133,24 +150,54 @@ router.get('/lookup', async (req, res) => {
       if (e && !numbers.includes(e)) numbers.push(e);
     };
 
+    // Effective selection:
+    // The product intent is to honor whatever the bystander tapped on the
+    // alert page. But two failure modes were cutting real calls:
+    //   • Bystander scans QR, sees the alert page, but places the phone
+    //     call before (or without) completing the tap flow → no
+    //     selection exists → we used to 404 → Exotel hung up.
+    //   • Bystander taps a contact, hesitates, comes back 45 min later,
+    //     dials → selection has aged past the 30-min TTL → same 404 cut.
+    // Neither should send an emergency caller to a dead line. If no
+    // valid, unexpired selection exists we FALL BACK TO RINGING THE
+    // OWNER — the same conservative choice a caller who tapped nothing
+    // would probably make on our behalf.
+    let effectiveKind = row.selected_contact_kind;
+    let effectiveFamilyId = row.selected_family_id;
+    const staleOrMissing =
+      !effectiveKind || ageMinutes === null || ageMinutes > SELECTION_TTL_MINUTES;
+    if (staleOrMissing) {
+      console.log(
+        `[exotel/lookup] no fresh selection — defaulting to owner ` +
+        `(had_kind=${effectiveKind || '(none)'} age_min=${ageMinutes === null ? 'null' : ageMinutes.toFixed(1)})`
+      );
+      effectiveKind = 'owner';
+      effectiveFamilyId = null;
+    }
+
     // primaryTargetRaw = the number stamped onto caller_activity and the
     // pending call_logs row. Represents "who the caller was trying to
     // reach" for owner-side attribution.
     let primaryTargetRaw;
-    if (row.selected_contact_kind === 'owner') {
+    if (effectiveKind === 'owner') {
       primaryTargetRaw = row.owner_mobile;
       push(primaryTargetRaw);
-    } else if (row.selected_contact_kind === 'family' && row.selected_family_id != null) {
-      const selected = family.find((f) => f.id === row.selected_family_id);
+    } else if (effectiveKind === 'family' && effectiveFamilyId != null) {
+      const selected = family.find((f) => f.id === effectiveFamilyId);
       if (selected && selected.phone) {
         primaryTargetRaw = selected.phone;
         push(primaryTargetRaw);
+      } else {
+        console.warn(
+          `[exotel/lookup] selected family_id=${effectiveFamilyId} not found in family_details ` +
+          `(possibly deleted after /select) — falling back to remaining family`
+        );
       }
       // Then the remaining family contacts (skip the one we already added).
       for (const f of family) {
-        if (f.id !== row.selected_family_id) push(f.phone);
+        if (f.id !== effectiveFamilyId) push(f.phone);
       }
-    } else if (row.selected_contact_kind === 'family') {
+    } else if (effectiveKind === 'family') {
       // family selected but no specific id (defensive fallback) — ring all.
       for (const f of family) push(f.phone);
       if (family.length > 0) primaryTargetRaw = family[0].phone;
@@ -216,17 +263,17 @@ router.get('/lookup', async (req, res) => {
       return res.json(exotelResponse([]));
     }
 
-    // Selection must exist and be within TTL for the call to be routed.
-    if (!row.selected_contact_kind || !row.selected_at) {
-      return res.status(404).json({ error: 'no active selection' });
-    }
-    const ageMinutes =
-      (Date.now() - new Date(row.selected_at).getTime()) / (1000 * 60);
-    if (ageMinutes > SELECTION_TTL_MINUTES) {
-      return res.status(404).json({ error: 'selection expired' });
-    }
-
+    // Missing / stale selection is no longer a 404 — see the fallback
+    // above. The only remaining hard failure is "we resolved a target
+    // kind but couldn't turn any raw phone into a valid E.164" — that
+    // means the QR row itself is broken (bad owner mobile, or family
+    // members all have unparseable phones). Log loudly so it's obvious.
     if (!toE164 || numbers.length === 0) {
+      console.warn(
+        `[exotel/lookup] CUT — no target numbers CallSid=${callSid} qr_id=${row.id} ` +
+        `owner_mobile=${row.owner_mobile || '(empty)'} kind=${effectiveKind} ` +
+        `family_count=${family.length} — check phone normalization / data integrity`
+      );
       return res.status(404).json({ error: 'no target numbers' });
     }
 
