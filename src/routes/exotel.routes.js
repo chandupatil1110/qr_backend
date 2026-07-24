@@ -9,7 +9,20 @@ const router = Router();
 const SELECTION_TTL_MINUTES = 30;
 const SPAM_NOTIFY_THRESHOLD = 5;
 
-const BRIDGE_NUMBER = '07948503110';
+// Two distinct Exophones — different roles, both must be provisioned in
+// the Exotel account:
+//   BRIDGE_NUMBER     — what the BYSTANDER dials from their phone (also
+//                       shown as the tel: fallback on the alert page and
+//                       returned by /alert/:uniqueId/select).
+//   OUTGOING_EXOPHONE — what Exotel uses as the CALLER ID when it
+//                       bridges OUT to the owner/family. This is the
+//                       `outgoing_phone_number` field in the Connect
+//                       applet payload. Kept separate from BRIDGE_NUMBER
+//                       so we can pick a different Exophone for
+//                       outgoing deliverability without touching what
+//                       bystanders dial.
+const BRIDGE_NUMBER = '02048563508';
+const OUTGOING_EXOPHONE = '07948503110';
 const MAX_RINGING_DURATION_SEC = 45;
 const MAX_CONVERSATION_DURATION_SEC = 120;
 const RECORD_CALLS = true;
@@ -27,7 +40,7 @@ function exotelResponse(numbers) {
   return {
     fetch_after_attempt: false,
     destination: { numbers: list },
-    outgoing_phone_number: BRIDGE_NUMBER,
+    outgoing_phone_number: OUTGOING_EXOPHONE,
     record: RECORD_CALLS,
     recording_channels: 'dual',
     max_ringing_duration: MAX_RINGING_DURATION_SEC,
