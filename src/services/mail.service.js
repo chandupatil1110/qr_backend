@@ -163,20 +163,38 @@ export async function sendInvoiceEmail(qr, family = []) {
       console.log('[mail/invoice] skipped: SMTP not configured');
       return { skipped: true, reason: 'not_configured' };
     }
-    const from = config.smtp.from || config.smtp.user;
+    // Two acceptable forms for SMTP_FROM:
+    //   1. Bare email:            SMTP_FROM=support@qr4emergency.com
+    //   2. Display name + email:  SMTP_FROM="QR 4 Emergency" <support@qr4emergency.com>
+    // We wrap only form 1 with our display name. Wrapping form 2 again
+    // produced `"QR 4 Emergency" <"QR 4 Emergency" <support@…>>` which
+    // is invalid RFC 5322 — Resend rejected it and the invoice email
+    // never went out. Detect by the presence of angle brackets.
+    const rawFrom = (config.smtp.from || config.smtp.user || '').trim();
+    const fromLine = rawFrom.includes('<')
+      ? rawFrom
+      : `"QR 4 Emergency" <${rawFrom}>`;
     const subject = `Your QR 4 Emergency invoice · ${invoiceNumber(qr)}`;
     const html = buildInvoiceHtml(qr, family);
     const info = await transporter.sendMail({
-      from: `"QR 4 Emergency" <${from}>`,
+      from: fromLine,
       to,
       subject,
       html,
     });
-    console.log('[mail/invoice] sent', { to, messageId: info.messageId, qrId: qr.id });
+    console.log('[mail/invoice] sent', { to, from: fromLine, messageId: info.messageId, qrId: qr.id });
     return { ok: true, messageId: info.messageId };
   } catch (err) {
     // Log and swallow — the caller's transaction is already committed.
-    console.error('[mail/invoice] send failed:', err.message);
+    // Include response code + Resend's reply body when available so the
+    // "invoice never arrived" case is diagnosable from logs alone.
+    console.error('[mail/invoice] send failed:', {
+      code: err.code,
+      response: err.response,
+      responseCode: err.responseCode,
+      message: err.message,
+      qrId: qr?.id,
+    });
     return { ok: false, error: err.message };
   }
 }

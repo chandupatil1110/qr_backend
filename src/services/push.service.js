@@ -58,15 +58,30 @@ async function sendFcm(deviceToken, { title, body, data = {} }) {
       android: {
         priority: 'high',
         notification: {
-          channelId: 'qr_events',
+          // Bumped from 'qr_events' → 'qr_events_v2' to force a fresh
+          // Android channel at Importance.high on existing installs.
+          // See push_service.dart for the full rationale.
+          channelId: 'qr_events_v2',
           sound: 'default',
+          defaultSound: true,
+          defaultVibrateTimings: true,
         },
       },
       apns: {
+        // apns-priority: 10 tells APNS to deliver immediately as a heads-up
+        // banner (5 is throttled / power-optimized). Without this, iOS
+        // shows notifications quietly in the drawer even when the app is
+        // backgrounded. interruption-level: active (iOS 15+) gives the
+        // banner permission to break through Focus modes for interactive
+        // notifications like a QR scan → call routing.
+        headers: {
+          'apns-priority': '10',
+          'apns-push-type': 'alert',
+        },
         payload: {
           aps: {
             sound: 'default',
-            'content-available': 1,
+            'interruption-level': 'active',
           },
         },
       },
