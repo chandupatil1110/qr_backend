@@ -61,9 +61,12 @@ function parseOpentype(u8) {
   return opentype.parse(u8.buffer);
 }
 
-let FONT_HEADING = null; // Poppins 900 — headings, brackets, footer badges
-let FONT_BODY = null;    // Poppins 600 — labels, website/email
-let FONT_MONO = null;    // JetBrains Mono 700 — vehicle plate + digits
+// Fonts are exported so marketing renderers (e.g. scripts/generate-phone-mockup.js)
+// can reuse the exact same typography without independently decompressing
+// WOFF2 → TTF and parsing again.
+export let FONT_HEADING = null; // Poppins 900 — headings, brackets, footer badges
+export let FONT_BODY = null;    // Poppins 600 — labels, website/email
+export let FONT_MONO = null;    // JetBrains Mono 700 — vehicle plate + digits
 try {
   // Top-level await — Node 18 (Railway) supports this in ESM. It blocks
   // downstream importers (server.js → app.js → routes → services) so
@@ -119,10 +122,13 @@ function commandsToPathData(commands, precision) {
 // walk glyph-by-glyph to support letter-spacing (needed for the tracked
 // "SCAN TO CALL OWNER" subhead and the mono digits inside the pill).
 //
+// Exported so marketing renderers can compose their own SVGs with the
+// exact same typography — see scripts/generate-phone-mockup.js.
+//
 // - anchor: 'start' | 'middle' | 'end' — matches SVG text-anchor
 // - letterSpacing: extra pixels between glyphs (SVG spec's default is 0)
 // - y is the BASELINE, exactly as in <text y="…">
-function textPath(text, x, y, {
+export function textPath(text, x, y, {
   font, size, fill = INK, anchor = 'start', letterSpacing = 0,
 }) {
   if (!font) return ''; // Fonts failed to load — degrade silently.
