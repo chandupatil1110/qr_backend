@@ -24,6 +24,63 @@ export function storageConfigured() {
   return Boolean(url && serviceRoleKey && bucket);
 }
 
+// Ask Supabase for a short-lived URL the browser can PUT a file directly
+// to — skips our backend entirely for the file bytes. Solves the 200MB-
+// through-Railway-edge problem: signing is a millisecond RPC, the actual
+// bytes never touch our container. Returns { signedUrl, path, token,
+// publicUrl } — the browser uploads with PUT, then we POST /commit with
+// the path to record the resulting publicUrl in the DB.
+export async function createSignedUploadUrl(objectPath) {
+  const client = getClient();
+  if (!client) {
+    return {
+      error:
+        'Storage not configured — set SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_BUCKET',
+    };
+  }
+  const { bucket } = config.supabase;
+  const { data, error } = await client.storage
+    .from(bucket)
+    .createSignedUploadUrl(objectPath);
+  if (error || !data) {
+    return { error: (error && error.message) || 'sign_failed' };
+  }
+  const pub = client.storage.from(bucket).getPublicUrl(objectPath);
+  return {
+    signedUrl: data.signedUrl,
+    token: data.token,
+    path: data.path || objectPath,
+    publicUrl: pub?.data?.publicUrl || null,
+    bucket,
+  };
+}
+
+// Confirm the object exists at the path before we write its URL to the
+// DB. Cheap HEAD-like call via list() with a prefix filter — no bytes
+// pulled.
+export async function objectExists(objectPath) {
+  const client = getClient();
+  if (!client || !objectPath) return false;
+  const { bucket } = config.supabase;
+  const slash = objectPath.lastIndexOf('/');
+  const prefix = slash >= 0 ? objectPath.slice(0, slash) : '';
+  const name = slash >= 0 ? objectPath.slice(slash + 1) : objectPath;
+  const { data, error } = await client.storage.from(bucket).list(prefix, {
+    limit: 100,
+    search: name,
+  });
+  if (error || !Array.isArray(data)) return false;
+  return data.some((entry) => entry && entry.name === name);
+}
+
+export function publicUrlFor(objectPath) {
+  const client = getClient();
+  if (!client || !objectPath) return null;
+  const { bucket } = config.supabase;
+  const { data } = client.storage.from(bucket).getPublicUrl(objectPath);
+  return data?.publicUrl || null;
+}
+
 // Upload a buffer to `<bucket>/<objectPath>`. Returns { url, path } on
 // success or { error } on failure. `upsert: true` so re-uploading the
 // same path overwrites the old object (matches the "one active promo

@@ -2,28 +2,19 @@ import { Router } from 'express';
 import { body, validationResult } from 'express-validator';
 import { randomBytes, randomUUID } from 'crypto';
 import JSZip from 'jszip';
-import multer from 'multer';
 import { pool } from '../db/pool.js';
 import { config } from '../config/index.js';
 import { requireAdmin } from '../middleware/adminAuth.js';
 import { renderStickerPng } from '../utils/sticker.js';
 import {
-  uploadObject,
   removeObject,
   storageConfigured,
+  createSignedUploadUrl,
+  objectExists,
+  publicUrlFor,
 } from '../services/storage.service.js';
 
 const router = Router();
-
-// Multer upload buffer for promo-video POSTs. Kept in memory (no temp
-// files on disk) since we pipe straight to Supabase Storage. 200MB cap.
-// A 200MB payload sits in RAM for the duration of the Supabase upload —
-// on a small container (256/512MB) two concurrent uploads could OOM the
-// process. Serialize admin uploads or size the container accordingly.
-const promoVideoUpload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 200 * 1024 * 1024 },
-});
 
 // Auto-generate an 8-character A-Z0-9 referral code. Distinct from anything
 // users type by hand, easy to read off a printed sticker.
@@ -478,47 +469,84 @@ router.get('/promo-video', requireAdmin, async (_req, res) => {
   }
 });
 
+// Step 1: get a short-lived signed URL the browser can PUT the video
+// directly to Supabase Storage. Backend never sees the file bytes — this
+// dodges the 200MB-through-Railway-edge timeout and the container OOM
+// risk from buffering in RAM.
 router.post(
-  '/promo-video',
+  '/promo-video/sign-upload',
   requireAdmin,
-  promoVideoUpload.single('video'),
+  body('contentType').optional({ nullable: true }).isString(),
   async (req, res) => {
-    if (!req.file) {
-      return res.status(400).json({ error: 'No video file uploaded (field name: video)' });
-    }
     if (!storageConfigured()) {
       return res.status(503).json({
         error:
           'Supabase Storage not configured. Set SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_BUCKET in env.',
       });
     }
-    const title = (req.body.title || '').toString().trim().slice(0, 120);
-    const subtitle = (req.body.subtitle || '').toString().trim().slice(0, 240);
-
-    // Path is opaque to consumers — random UUID per upload so a cached CDN
-    // response never masks the new video. Extension inferred from mime
-    // type; falls back to .mp4 which is what the mobile player expects.
-    const mime = req.file.mimetype || 'video/mp4';
+    const mime = (req.body.contentType || 'video/mp4').toString();
     const ext = mime.includes('webm')
       ? 'webm'
       : mime.includes('quicktime')
       ? 'mov'
       : 'mp4';
     const objectPath = `promo-videos/${randomUUID()}.${ext}`;
-
-    const uploaded = await uploadObject({
-      buffer: req.file.buffer,
-      objectPath,
-      contentType: mime,
+    const signed = await createSignedUploadUrl(objectPath);
+    if (signed.error) {
+      console.error('[admin/promo-video/sign-upload] failed:', signed.error);
+      return res.status(502).json({ error: signed.error });
+    }
+    return res.json({
+      signedUrl: signed.signedUrl,
+      token: signed.token,
+      path: signed.path,
+      publicUrl: signed.publicUrl,
+      bucket: signed.bucket,
     });
-    if (uploaded.error) {
-      console.error('[admin/promo-video/post] upload failed:', uploaded.error);
-      return res.status(502).json({ error: uploaded.error });
+  }
+);
+
+// Step 2: browser tells us the direct PUT succeeded — verify the object
+// really exists at that path (guards against a client that lies about the
+// path or a network drop mid-upload), then persist the public URL. Old
+// object is deleted best-effort so we don't leak files in the bucket.
+router.post(
+  '/promo-video/commit',
+  requireAdmin,
+  body('path').isString().trim().notEmpty(),
+  body('title').optional({ nullable: true }).isString(),
+  body('subtitle').optional({ nullable: true }).isString(),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+
+    if (!storageConfigured()) {
+      return res.status(503).json({ error: 'Supabase Storage not configured' });
     }
 
-    // Grab the old storage_path before we overwrite the row so we can
-    // delete the previous object best-effort — otherwise every upload
-    // leaks a file into the bucket.
+    const path = req.body.path;
+    // Only accept paths we would have handed out — stops a caller from
+    // pointing us at an arbitrary object in the bucket.
+    if (!/^promo-videos\/[A-Za-z0-9\-]+\.(mp4|webm|mov)$/.test(path)) {
+      return res.status(400).json({ error: 'Unexpected storage path shape' });
+    }
+
+    const exists = await objectExists(path);
+    if (!exists) {
+      return res.status(400).json({
+        error:
+          'File not found in Supabase — the direct upload may have failed. Try again.',
+      });
+    }
+
+    const publicUrl = publicUrlFor(path);
+    if (!publicUrl) {
+      return res.status(502).json({ error: 'Could not resolve public URL for object' });
+    }
+
+    const title = (req.body.title || '').toString().trim().slice(0, 120);
+    const subtitle = (req.body.subtitle || '').toString().trim().slice(0, 240);
+
     const prev = await pool.query(
       `SELECT storage_path FROM promo_video WHERE id = 1`
     );
@@ -529,21 +557,21 @@ router.post(
           SET url = $1, title = $2, subtitle = $3,
               storage_path = $4, updated_at = NOW()
         WHERE id = 1`,
-      [uploaded.url, title, subtitle, uploaded.path]
+      [publicUrl, title, subtitle, path]
     );
 
-    if (oldPath && oldPath !== uploaded.path) {
+    if (oldPath && oldPath !== path) {
       removeObject(oldPath).catch((e) =>
-        console.warn('[admin/promo-video] old object delete failed:', e.message)
+        console.warn('[admin/promo-video/commit] old object delete failed:', e.message)
       );
     }
 
     return res.json({
       ok: true,
-      url: uploaded.url,
+      url: publicUrl,
       title,
       subtitle,
-      storage_path: uploaded.path,
+      storage_path: path,
     });
   }
 );
@@ -592,14 +620,6 @@ router.delete('/promo-video', requireAdmin, async (_req, res) => {
     console.error('[admin/promo-video/delete] error:', err);
     return res.status(500).json({ error: err.message });
   }
-});
-
-// Multer error handler — file-too-large etc. surface here.
-router.use((err, _req, res, next) => {
-  if (err instanceof multer.MulterError) {
-    return res.status(400).json({ error: `Upload failed: ${err.message}` });
-  }
-  next(err);
 });
 
 export default router;
