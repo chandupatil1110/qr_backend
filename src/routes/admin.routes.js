@@ -16,12 +16,13 @@ import {
 const router = Router();
 
 // Multer upload buffer for promo-video POSTs. Kept in memory (no temp
-// files on disk) since we pipe straight to Supabase Storage. 50MB cap —
-// generous enough for a 60-second 1080p ad, tight enough that a giant
-// upload can't fill the container's RAM.
+// files on disk) since we pipe straight to Supabase Storage. 200MB cap.
+// A 200MB payload sits in RAM for the duration of the Supabase upload —
+// on a small container (256/512MB) two concurrent uploads could OOM the
+// process. Serialize admin uploads or size the container accordingly.
 const promoVideoUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 50 * 1024 * 1024 },
+  limits: { fileSize: 200 * 1024 * 1024 },
 });
 
 // Auto-generate an 8-character A-Z0-9 referral code. Distinct from anything
