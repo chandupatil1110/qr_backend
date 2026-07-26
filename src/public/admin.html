@@ -167,6 +167,55 @@
       </div>
     </div>
 
+    <!-- Home-page promo / ad video -->
+    <div class="card">
+      <h2>Home Screen Ad Video</h2>
+      <p class="muted" style="margin-top: -6px; margin-bottom: 14px;">
+        Upload a short video shown as an ad card on every user's home screen.
+        Uploading a new file replaces the current one. Max file size 50 MB.
+      </p>
+      <div id="promo-err" class="err hidden"></div>
+      <div id="promo-ok" class="success hidden"></div>
+
+      <div id="promo-current" class="hidden" style="margin-bottom: 14px;">
+        <label>Currently Live</label>
+        <video id="promo-preview" controls playsinline
+               style="width: 100%; max-width: 480px; border-radius: 12px;
+                      background: #000; margin-top: 6px;"></video>
+        <div class="muted" style="margin-top: 8px; font-size: 12px;">
+          <span id="promo-updated">—</span>
+          &nbsp;·&nbsp;
+          <a href="#" id="promo-open">Open URL</a>
+        </div>
+      </div>
+
+      <div class="grid2">
+        <div>
+          <label>Title (optional)</label>
+          <input type="text" id="promo-title" maxlength="120"
+                 placeholder="e.g., See how it works" />
+        </div>
+        <div>
+          <label>Subtitle (optional)</label>
+          <input type="text" id="promo-subtitle" maxlength="240"
+                 placeholder="e.g., A 60-second walkthrough" />
+        </div>
+      </div>
+      <div style="height: 12px;"></div>
+      <label>Video File</label>
+      <input type="file" id="promo-file" accept="video/mp4,video/webm,video/quicktime"
+             style="background: var(--card2); border: 1px solid var(--border);
+                    color: var(--text); padding: 10px 12px; border-radius: 10px;
+                    width: 100%;" />
+      <p class="muted" id="promo-storage-warn" style="margin: 8px 0 0; font-size: 11px;"></p>
+      <div style="height: 14px;"></div>
+      <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+        <button class="primary" id="promo-upload-btn">Upload &amp; Save</button>
+        <button class="ghost" id="promo-meta-btn">Update Title/Subtitle Only</button>
+        <button class="danger" id="promo-delete-btn" style="padding: 11px 16px;">Remove Current Video</button>
+      </div>
+    </div>
+
     <!-- Mint form -->
     <div class="card">
       <h2>Mint New Manual QR</h2>
@@ -258,6 +307,7 @@
     $('login-screen').classList.add('hidden');
     $('app').classList.remove('hidden');
     loadStats();
+    loadPromo();
     load();
   }
   function showLogin() {
@@ -533,6 +583,137 @@
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) { alert('Export failed: ' + e.message); }
+  };
+
+  // ─── Home-screen promo video ────────────────────────────────────
+  function showPromoErr(msg) {
+    const el = $('promo-err');
+    el.textContent = msg;
+    el.classList.remove('hidden');
+    $('promo-ok').classList.add('hidden');
+  }
+  function showPromoOk(msg) {
+    const el = $('promo-ok');
+    el.textContent = msg;
+    el.classList.remove('hidden');
+    $('promo-err').classList.add('hidden');
+    setTimeout(() => el.classList.add('hidden'), 4000);
+  }
+  function clearPromoBanners() {
+    $('promo-err').classList.add('hidden');
+    $('promo-ok').classList.add('hidden');
+  }
+
+  async function loadPromo() {
+    try {
+      const p = await api('/api/admin/promo-video');
+      $('promo-title').value = p.title || '';
+      $('promo-subtitle').value = p.subtitle || '';
+      const warn = $('promo-storage-warn');
+      if (!p.storage_configured) {
+        warn.style.color = 'var(--red)';
+        warn.textContent =
+          '⚠ Supabase Storage is not configured on the server. Uploads will be rejected until SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY and SUPABASE_BUCKET are set.';
+      } else {
+        warn.style.color = 'var(--text3)';
+        warn.textContent = 'MP4 / WebM / MOV up to 50 MB.';
+      }
+      if (p.url) {
+        $('promo-current').classList.remove('hidden');
+        $('promo-preview').src = p.url;
+        $('promo-open').href = p.url;
+        $('promo-updated').textContent = p.updated_at
+          ? 'Updated ' + new Date(p.updated_at).toLocaleString()
+          : 'Live';
+      } else {
+        $('promo-current').classList.add('hidden');
+        $('promo-preview').removeAttribute('src');
+      }
+    } catch (e) {
+      console.error('[loadPromo]', e);
+    }
+  }
+
+  $('promo-upload-btn').onclick = async () => {
+    clearPromoBanners();
+    const file = $('promo-file').files[0];
+    if (!file) {
+      showPromoErr('Choose a video file first.');
+      return;
+    }
+    if (file.size > 50 * 1024 * 1024) {
+      showPromoErr('File is larger than 50 MB. Please compress it first.');
+      return;
+    }
+    const form = new FormData();
+    form.append('video', file);
+    form.append('title', $('promo-title').value.trim());
+    form.append('subtitle', $('promo-subtitle').value.trim());
+
+    const btn = $('promo-upload-btn');
+    btn.disabled = true;
+    const orig = btn.textContent;
+    btn.textContent = 'Uploading…';
+    try {
+      const res = await fetch('/api/admin/promo-video', {
+        method: 'POST',
+        headers: { 'X-Admin-Key': adminKey },
+        body: form,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      $('promo-file').value = '';
+      showPromoOk('Uploaded. The mobile home screen will pick this up on next launch.');
+      loadPromo();
+    } catch (e) {
+      showPromoErr(e.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = orig;
+    }
+  };
+
+  $('promo-meta-btn').onclick = async () => {
+    clearPromoBanners();
+    const btn = $('promo-meta-btn');
+    btn.disabled = true;
+    const orig = btn.textContent;
+    btn.textContent = 'Saving…';
+    try {
+      await api('/api/admin/promo-video/meta', {
+        method: 'PUT',
+        body: JSON.stringify({
+          title: $('promo-title').value.trim(),
+          subtitle: $('promo-subtitle').value.trim(),
+        }),
+      });
+      showPromoOk('Title / subtitle updated.');
+      loadPromo();
+    } catch (e) {
+      showPromoErr(e.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = orig;
+    }
+  };
+
+  $('promo-delete-btn').onclick = async () => {
+    clearPromoBanners();
+    if (!confirm('Remove the current promo video from the home screen?')) return;
+    const btn = $('promo-delete-btn');
+    btn.disabled = true;
+    const orig = btn.textContent;
+    btn.textContent = 'Removing…';
+    try {
+      await api('/api/admin/promo-video', { method: 'DELETE' });
+      showPromoOk('Removed. The home screen will hide the ad card on next launch.');
+      loadPromo();
+    } catch (e) {
+      showPromoErr(e.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = orig;
+    }
   };
 
   // Boot

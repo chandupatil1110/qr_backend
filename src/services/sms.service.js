@@ -283,6 +283,35 @@ async function getOwnerForQr(qrId) {
   }
 }
 
+// Fetch owner + all family phones for a QR. Used by the "SMS everyone
+// on scan" broadcast. Returns { vehicle, recipients: [phone, ...] } —
+// deduped, owner first.
+async function getScanAlertRecipients(qrId) {
+  try {
+    const owner = await getOwnerForQr(qrId);
+    if (!owner) return null;
+    const fam = await pool.query(
+      `SELECT phone FROM family_details WHERE qr_id = $1 ORDER BY id`,
+      [qrId]
+    );
+    const seen = new Set();
+    const recipients = [];
+    const push = (p) => {
+      if (!p) return;
+      const key = String(p).replace(/\D/g, '');
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      recipients.push(p);
+    };
+    push(owner.mobile);
+    for (const r of fam.rows) push(r.phone);
+    return { vehicle: owner.vehicle || 'your vehicle', recipients };
+  } catch (err) {
+    console.error('[sms] getScanAlertRecipients failed:', err.message);
+    return null;
+  }
+}
+
 // ─── Business helpers ───────────────────────────────────────────────────
 // Every helper builds its message via TEMPLATES.<X>.build(...) and
 // dispatches with the matching template id, so the body sent over the
@@ -315,21 +344,31 @@ export async function sendQrSuccess({ mobile, owner_name }) {
   );
 }
 
-// Alert SMS — sent when a bystander taps a contact on the alert page.
-// DLT registers one template for both owner-tap and family-tap since the
-// text is identical; the two helper names remain for caller clarity.
-// Currently disabled at the template level (see TEMPLATES.QR_SCAN_ALERT).
-async function sendScanAlert(qrId) {
-  const owner = await getOwnerForQr(qrId);
-  if (!owner || !owner.mobile) return { ok: false, error: 'no_owner_mobile' };
-  return dispatchTemplate(
-    TEMPLATES.QR_SCAN_ALERT,
-    owner.mobile,
-    owner.vehicle || 'your vehicle'
+// Alert SMS broadcast — fires on every QR scan. Sends the same
+// DLT-approved QR_SCAN_ALERT template to the owner AND every emergency
+// contact (owner + up to 4 family = 5 recipients max). Fire-and-forget:
+// per-recipient failures never throw. Callers hit this on scan and on
+// tap, so a phone that missed the first send still gets a retry.
+export async function sendScanAlertToAll(qrId) {
+  const data = await getScanAlertRecipients(qrId);
+  if (!data || !data.recipients.length) {
+    return { ok: false, error: 'no_recipients' };
+  }
+  const results = await Promise.all(
+    data.recipients.map((phone) =>
+      dispatchTemplate(TEMPLATES.QR_SCAN_ALERT, phone, data.vehicle).catch(
+        (err) => ({ ok: false, error: err?.message || 'dispatch_threw' })
+      )
+    )
   );
+  const okCount = results.filter((r) => r && r.ok).length;
+  return { ok: okCount > 0, sent: okCount, total: results.length };
 }
-export const sendQrScannedOwnerTap = sendScanAlert;
-export const sendQrScannedFamilyTap = sendScanAlert;
+
+// Legacy names kept so old callers don't break; both now broadcast to
+// owner + every family contact.
+export const sendQrScannedOwnerTap = sendScanAlertToAll;
+export const sendQrScannedFamilyTap = sendScanAlertToAll;
 
 // Daily expiry countdown. Template needs {days_left} + {expiry_date};
 // caller passes days_left and we derive the date so callers don't have

@@ -155,8 +155,11 @@ router.get('/lookup', async (req, res) => {
     //                     in parallel would let a family member pick up
     //                     instead of the owner, which is the exact bug.
     //   kind = 'family' → dial the selected family contact first, then
-    //                     the remaining family contacts in parallel as
-    //                     fallback (id order). Owner is NOT included.
+    //                     the remaining family contacts in parallel, AND
+    //                     the owner as the final parallel target — so a
+    //                     Call Family tap effectively rings all 5 numbers
+    //                     (1 owner + up to 4 emergency contacts), which
+    //                     matches Exotel's 5-parallel cap exactly.
     const numbers = [];
     const push = (raw) => {
       const e = normalizeIndianMobile(raw);
@@ -210,10 +213,15 @@ router.get('/lookup', async (req, res) => {
       for (const f of family) {
         if (f.id !== effectiveFamilyId) push(f.phone);
       }
+      // Owner is included alongside family so a Call Family tap rings
+      // all 5 numbers (1 owner + up to 4 contacts) in parallel.
+      push(row.owner_mobile);
     } else if (effectiveKind === 'family') {
       // family selected but no specific id (defensive fallback) — ring all.
       for (const f of family) push(f.phone);
+      push(row.owner_mobile);
       if (family.length > 0) primaryTargetRaw = family[0].phone;
+      else primaryTargetRaw = row.owner_mobile;
     }
     const toE164 = normalizeIndianMobile(primaryTargetRaw);
 

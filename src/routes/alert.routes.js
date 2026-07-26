@@ -10,8 +10,7 @@ import {
 } from '../services/qr.service.js';
 import { notifyUser } from '../services/push.service.js';
 import {
-  sendQrScannedOwnerTap,
-  sendQrScannedFamilyTap,
+  sendScanAlertToAll,
 } from '../services/sms.service.js';
 import { v4 as uuidv4 } from 'uuid';
 import { readFileSync } from 'fs';
@@ -55,6 +54,16 @@ router.post(
     }
 
     const family = await getFamilyByQrId(qr.id);
+
+    // SMS broadcast on every scan — owner + every emergency contact
+    // (up to 5 recipients total). Fire-and-forget so the alert page
+    // renders instantly even if the SMS provider is slow. Product
+    // requirement: SMS goes out on scan regardless of which button
+    // (if any) the bystander taps.
+    sendScanAlertToAll(qr.id).catch((e) =>
+      console.error('[alert/verify] sendScanAlertToAll:', e)
+    );
+
     return res.json({
       verified: true,
       vehicle_number: qr.vehicle_number, // useful for the header on the alert page
@@ -191,17 +200,12 @@ router.post(
         ]
       );
 
-      // Fire-and-forget SMS branch — owner tap vs family tap gets a
-      // different message body per product spec.
-      if (contact_kind === 'owner') {
-        sendQrScannedOwnerTap(qr.id).catch((e) =>
-          console.error('[alert/event] sendQrScannedOwnerTap:', e)
-        );
-      } else if (contact_kind === 'family') {
-        sendQrScannedFamilyTap(qr.id).catch((e) =>
-          console.error('[alert/event] sendQrScannedFamilyTap:', e)
-        );
-      }
+      // SMS to owner + every emergency contact — same broadcast that
+      // fired on /verify. Repeated on tap so a phone that missed the
+      // first send still gets a retry.
+      sendScanAlertToAll(qr.id).catch((e) =>
+        console.error('[alert/event] sendScanAlertToAll:', e)
+      );
 
       // Fire-and-forget push to the QR owner: "your QR was just scanned".
       // Runs after res.json so a slow FCM call can't stretch the response.
@@ -259,7 +263,7 @@ router.post('/:uniqueId/manual_activate',
   body('name').trim().notEmpty(),
   body('vehicle_number').trim().matches(/^([A-Z]{2}[0-9]{2}[A-Z]{1,2}[0-9]{4}|[0-9]{2}BH[0-9]{4}[A-Z]{1,2})$/),
   body('referralCode').trim().notEmpty(),
-  body('family').isArray({ min: 1, max: 5 }),
+  body('family').isArray({ min: 1, max: 4 }),
   // Optional profile / shipping fields — the alert-page activation form
   // now collects the same set of fields as the Flutter /qr/create form
   // so the DB row looks identical regardless of activation path (paid

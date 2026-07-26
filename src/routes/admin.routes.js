@@ -2,12 +2,27 @@ import { Router } from 'express';
 import { body, validationResult } from 'express-validator';
 import { randomBytes, randomUUID } from 'crypto';
 import JSZip from 'jszip';
+import multer from 'multer';
 import { pool } from '../db/pool.js';
 import { config } from '../config/index.js';
 import { requireAdmin } from '../middleware/adminAuth.js';
 import { renderStickerPng } from '../utils/sticker.js';
+import {
+  uploadObject,
+  removeObject,
+  storageConfigured,
+} from '../services/storage.service.js';
 
 const router = Router();
+
+// Multer upload buffer for promo-video POSTs. Kept in memory (no temp
+// files on disk) since we pipe straight to Supabase Storage. 50MB cap —
+// generous enough for a 60-second 1080p ad, tight enough that a giant
+// upload can't fill the container's RAM.
+const promoVideoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 },
+});
 
 // Auto-generate an 8-character A-Z0-9 referral code. Distinct from anything
 // users type by hand, easy to read off a printed sticker.
@@ -433,6 +448,157 @@ router.get('/payments', requireAdmin, async (req, res) => {
     console.error('[admin/payments] error:', err);
     return res.status(500).json({ error: err.message });
   }
+});
+
+// ─── Promo video / home-page ad ─────────────────────────────────────────
+// One active promo at a time (schema-enforced by promo_video.id CHECK).
+// GET returns current state. POST accepts a multipart video upload +
+// optional title/subtitle. DELETE clears the row and (best-effort) the
+// underlying Supabase object.
+
+router.get('/promo-video', requireAdmin, async (_req, res) => {
+  try {
+    const r = await pool.query(
+      `SELECT url, title, subtitle, storage_path, updated_at
+         FROM promo_video WHERE id = 1`
+    );
+    const row = r.rows[0] || {};
+    return res.json({
+      url: row.url || null,
+      title: row.title || '',
+      subtitle: row.subtitle || '',
+      storage_path: row.storage_path || null,
+      updated_at: row.updated_at || null,
+      storage_configured: storageConfigured(),
+    });
+  } catch (err) {
+    console.error('[admin/promo-video/get] error:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+router.post(
+  '/promo-video',
+  requireAdmin,
+  promoVideoUpload.single('video'),
+  async (req, res) => {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No video file uploaded (field name: video)' });
+    }
+    if (!storageConfigured()) {
+      return res.status(503).json({
+        error:
+          'Supabase Storage not configured. Set SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_BUCKET in env.',
+      });
+    }
+    const title = (req.body.title || '').toString().trim().slice(0, 120);
+    const subtitle = (req.body.subtitle || '').toString().trim().slice(0, 240);
+
+    // Path is opaque to consumers — random UUID per upload so a cached CDN
+    // response never masks the new video. Extension inferred from mime
+    // type; falls back to .mp4 which is what the mobile player expects.
+    const mime = req.file.mimetype || 'video/mp4';
+    const ext = mime.includes('webm')
+      ? 'webm'
+      : mime.includes('quicktime')
+      ? 'mov'
+      : 'mp4';
+    const objectPath = `promo-videos/${randomUUID()}.${ext}`;
+
+    const uploaded = await uploadObject({
+      buffer: req.file.buffer,
+      objectPath,
+      contentType: mime,
+    });
+    if (uploaded.error) {
+      console.error('[admin/promo-video/post] upload failed:', uploaded.error);
+      return res.status(502).json({ error: uploaded.error });
+    }
+
+    // Grab the old storage_path before we overwrite the row so we can
+    // delete the previous object best-effort — otherwise every upload
+    // leaks a file into the bucket.
+    const prev = await pool.query(
+      `SELECT storage_path FROM promo_video WHERE id = 1`
+    );
+    const oldPath = prev.rows[0]?.storage_path;
+
+    await pool.query(
+      `UPDATE promo_video
+          SET url = $1, title = $2, subtitle = $3,
+              storage_path = $4, updated_at = NOW()
+        WHERE id = 1`,
+      [uploaded.url, title, subtitle, uploaded.path]
+    );
+
+    if (oldPath && oldPath !== uploaded.path) {
+      removeObject(oldPath).catch((e) =>
+        console.warn('[admin/promo-video] old object delete failed:', e.message)
+      );
+    }
+
+    return res.json({
+      ok: true,
+      url: uploaded.url,
+      title,
+      subtitle,
+      storage_path: uploaded.path,
+    });
+  }
+);
+
+// Meta-only update (no file re-upload). Used for tweaking title/subtitle
+// on the existing video without re-uploading megabytes.
+router.put(
+  '/promo-video/meta',
+  requireAdmin,
+  body('title').optional({ nullable: true }).isString(),
+  body('subtitle').optional({ nullable: true }).isString(),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+    const title = (req.body.title || '').toString().trim().slice(0, 120);
+    const subtitle = (req.body.subtitle || '').toString().trim().slice(0, 240);
+    await pool.query(
+      `UPDATE promo_video
+          SET title = $1, subtitle = $2, updated_at = NOW()
+        WHERE id = 1`,
+      [title, subtitle]
+    );
+    return res.json({ ok: true, title, subtitle });
+  }
+);
+
+router.delete('/promo-video', requireAdmin, async (_req, res) => {
+  try {
+    const prev = await pool.query(
+      `SELECT storage_path FROM promo_video WHERE id = 1`
+    );
+    const oldPath = prev.rows[0]?.storage_path;
+    await pool.query(
+      `UPDATE promo_video
+          SET url = NULL, title = NULL, subtitle = NULL,
+              storage_path = NULL, updated_at = NOW()
+        WHERE id = 1`
+    );
+    if (oldPath) {
+      removeObject(oldPath).catch((e) =>
+        console.warn('[admin/promo-video/delete] object remove failed:', e.message)
+      );
+    }
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error('[admin/promo-video/delete] error:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Multer error handler — file-too-large etc. surface here.
+router.use((err, _req, res, next) => {
+  if (err instanceof multer.MulterError) {
+    return res.status(400).json({ error: `Upload failed: ${err.message}` });
+  }
+  next(err);
 });
 
 export default router;

@@ -46,10 +46,10 @@ router.post(
   body('email').isEmail().normalizeEmail({ gmail_remove_dots: false }),
   body('vehicle_number').trim().notEmpty().matches(/^([A-Z]{2}[0-9]{2}[A-Z]{1,2}[0-9]{4}|[0-9]{2}BH[0-9]{4}[A-Z]{1,2})$/).withMessage('Invalid Vehicle Number'),
   body('blood_group').optional().isString().trim(),
-  body('family').isArray({ min: 1, max: 5 }),
+  body('family').isArray({ min: 1, max: 4 }),
   body('family.*.name').trim().notEmpty(),
   body('family.*.phone').trim().notEmpty(),
-  body('family.*.relation').custom((v) => validateFamilyRelation(v)),
+  body('family.*.relation').optional({ nullable: true, checkFalsy: true }).custom((v) => validateFamilyRelation(v)),
   // Shipping address for the physical sticker.
   body('shipping_address_line1').trim().notEmpty().withMessage('Address is required'),
   body('shipping_address_line2').optional({ nullable: true }).isString().trim(),
@@ -111,10 +111,10 @@ router.get('/:id/family', requireAuth, async (req, res) => {
 router.put(
   '/:id/family',
   requireAuth,
-  body('family').isArray({ min: 1, max: 5 }),
+  body('family').isArray({ min: 1, max: 4 }),
   body('family.*.name').trim().notEmpty(),
   body('family.*.phone').trim().notEmpty(),
-  body('family.*.relation').custom((v) => validateFamilyRelation(v)),
+  body('family.*.relation').optional({ nullable: true, checkFalsy: true }).custom((v) => validateFamilyRelation(v)),
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {

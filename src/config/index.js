@@ -77,6 +77,21 @@ export const config = {
       'A 60-second walkthrough of QR 4 Emergency.',
     poster: process.env.PROMO_VIDEO_POSTER || '',
   },
+  // Supabase Storage — backs admin promo-video uploads.
+  //   SUPABASE_URL              → https://<project>.supabase.co
+  //   SUPABASE_SERVICE_ROLE_KEY → service-role JWT (Settings → API). Never
+  //                               expose to the client; it bypasses RLS.
+  //   SUPABASE_BUCKET           → public bucket name (default "promo").
+  //                               Create it in Supabase Storage, set to
+  //                               public so getPublicUrl() returns a
+  //                               world-readable URL.
+  // If any of these are missing the upload endpoint returns 503 with a
+  // clear error message — safe default for local dev.
+  supabase: {
+    url: (process.env.SUPABASE_URL || '').trim(),
+    serviceRoleKey: (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim(),
+    bucket: (process.env.SUPABASE_BUCKET || 'promo').trim(),
+  },
   // Firebase Admin service-account JSON. Paste the entire JSON downloaded
   // from Firebase Console → Project Settings → Service accounts as a
   // single-line string in the env var. If unset, push notifications

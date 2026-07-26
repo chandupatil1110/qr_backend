@@ -7,8 +7,11 @@ import { sendQrCreated, sendQrSuccess } from './sms.service.js';
 import { markPaymentVerified, markPaymentFailed } from './payment.service.js';
 
 // Client-facing relation groups. Stored verbatim in family_details.relation.
-// Grouped as slash-pairs so the mobile UI can show 5 buttons instead of 9
-// separate radios. Migration 018 rewrites legacy singular values.
+// The relation field was dropped from the emergency-contact form — we now
+// collect only name + phone. Existing rows keep whatever slash-pair value
+// they were saved with; new rows come in with '' (or omitted) and the
+// validator treats that as valid. The RELATIONS set is retained so the
+// legacy slash-pair values remain acceptable when older clients push them.
 const RELATIONS = new Set([
   'Father/Mother',
   'Sister/Brother',
@@ -17,8 +20,14 @@ const RELATIONS = new Set([
   'Other',
 ]);
 
+// Empty / missing = OK (field removed from UI). Any legacy slash-pair still
+// passes. Anything else (a stray free-text string from a tampered client) is
+// rejected so we don't stash arbitrary junk in family_details.relation.
 export function validateFamilyRelation(relation) {
-  return RELATIONS.has(relation);
+  if (relation == null) return true;
+  const s = String(relation).trim();
+  if (s === '') return true;
+  return RELATIONS.has(s);
 }
 
 export async function createQrRecord({
@@ -133,15 +142,15 @@ export async function createQrRecord({
     }
   }
 
-  if (!family || !Array.isArray(family) || family.length < 1 || family.length > 5) {
-    const err = new Error('Family must include 1 to 5 contacts');
+  if (!family || !Array.isArray(family) || family.length < 1 || family.length > 4) {
+    const err = new Error('Family must include 1 to 4 contacts');
     err.statusCode = 400;
     throw err;
   }
 
   for (const f of family) {
-    if (!f.name || !f.phone || !f.relation || !validateFamilyRelation(f.relation)) {
-      const err = new Error('Each family member needs name, phone, and valid relation');
+    if (!f.name || !f.phone || !validateFamilyRelation(f.relation)) {
+      const err = new Error('Each family member needs a name and phone');
       err.statusCode = 400;
       throw err;
     }
@@ -225,7 +234,7 @@ export async function createQrRecord({
     for (const f of family) {
       await client.query(
         `INSERT INTO family_details (qr_id, name, phone, relation) VALUES ($1, $2, $3, $4)`,
-        [qr.id, f.name.trim(), String(f.phone).replace(/\s/g, ''), f.relation]
+        [qr.id, f.name.trim(), String(f.phone).replace(/\s/g, ''), (f.relation || '').toString().trim()]
       );
     }
     await client.query('COMMIT');
@@ -369,14 +378,14 @@ export async function getFamilyForUserQr(userId, qrId) {
 export async function replaceFamilyForUserQr(userId, qrId, family) {
   await assertQrOwnedByUser(qrId, userId);
 
-  if (!Array.isArray(family) || family.length < 1 || family.length > 5) {
-    const err = new Error('Family must include 1 to 5 contacts');
+  if (!Array.isArray(family) || family.length < 1 || family.length > 4) {
+    const err = new Error('Family must include 1 to 4 contacts');
     err.statusCode = 400;
     throw err;
   }
   for (const f of family) {
-    if (!f.name || !f.phone || !f.relation || !validateFamilyRelation(f.relation)) {
-      const err = new Error('Each family member needs name, phone, and valid relation');
+    if (!f.name || !f.phone || !validateFamilyRelation(f.relation)) {
+      const err = new Error('Each family member needs a name and phone');
       err.statusCode = 400;
       throw err;
     }
@@ -389,7 +398,7 @@ export async function replaceFamilyForUserQr(userId, qrId, family) {
     for (const f of family) {
       await client.query(
         `INSERT INTO family_details (qr_id, name, phone, relation) VALUES ($1, $2, $3, $4)`,
-        [qrId, f.name.trim(), String(f.phone).replace(/\s/g, ''), f.relation]
+        [qrId, f.name.trim(), String(f.phone).replace(/\s/g, ''), (f.relation || '').toString().trim()]
       );
     }
     await client.query('COMMIT');
