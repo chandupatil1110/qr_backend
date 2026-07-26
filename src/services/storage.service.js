@@ -1,123 +1,190 @@
-import { createClient } from '@supabase/supabase-js';
 import { config } from '../config/index.js';
 
-// Thin wrapper over Supabase Storage. Callers hand in a Buffer + a
-// destination path; we upload to the configured bucket and return the
-// public URL. `upload` and `remove` both fail closed with a helpful
-// message when the Supabase creds are missing — nothing here throws
-// unless the Supabase SDK itself does.
+// Supabase Storage helpers backed by direct REST calls (not the JS SDK).
+//
+// Why: @supabase/supabase-js v2 initializes a Realtime WebSocket client
+// inside createClient(), and Realtime requires either Node 22+ (native
+// WebSocket) or a manually-injected `ws` transport. Railway runs Node 18,
+// so importing the SDK crashes the process on the first createClient()
+// call. We only need Storage endpoints — create-signed-upload-url, list,
+// delete, and the deterministic public URL — so a fetch()-based wrapper
+// is simpler, lighter, and Node-version-agnostic.
 
-let _client = null;
+const STORAGE_BASE = () => {
+  const base = (config.supabase.url || '').replace(/\/+$/, '');
+  return base ? `${base}/storage/v1` : '';
+};
 
-function getClient() {
-  const { url, serviceRoleKey } = config.supabase;
-  if (!url || !serviceRoleKey) return null;
-  if (_client) return _client;
-  _client = createClient(url, serviceRoleKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-  return _client;
-}
+const authHeaders = () => {
+  const key = config.supabase.serviceRoleKey;
+  return {
+    apikey: key,
+    Authorization: `Bearer ${key}`,
+  };
+};
 
 export function storageConfigured() {
   const { url, serviceRoleKey, bucket } = config.supabase;
   return Boolean(url && serviceRoleKey && bucket);
 }
 
+function encodePath(path) {
+  return path
+    .split('/')
+    .map((segment) => encodeURIComponent(segment))
+    .join('/');
+}
+
 // Ask Supabase for a short-lived URL the browser can PUT a file directly
-// to — skips our backend entirely for the file bytes. Solves the 200MB-
-// through-Railway-edge problem: signing is a millisecond RPC, the actual
-// bytes never touch our container. Returns { signedUrl, path, token,
-// publicUrl } — the browser uploads with PUT, then we POST /commit with
-// the path to record the resulting publicUrl in the DB.
+// to — skips our backend entirely for the file bytes. Response shape from
+// the REST API: { url: "/object/upload/sign/{bucket}/{path}?token=…",
+// token: "…" }. We resolve `url` against SUPABASE_URL so the caller gets
+// a fully-qualified URL back.
 export async function createSignedUploadUrl(objectPath) {
-  const client = getClient();
-  if (!client) {
+  if (!storageConfigured()) {
     return {
       error:
         'Storage not configured — set SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_BUCKET',
     };
   }
+  const base = STORAGE_BASE();
   const { bucket } = config.supabase;
-  const { data, error } = await client.storage
-    .from(bucket)
-    .createSignedUploadUrl(objectPath);
-  if (error || !data) {
-    return { error: (error && error.message) || 'sign_failed' };
+  const endpoint = `${base}/object/upload/sign/${encodeURIComponent(bucket)}/${encodePath(objectPath)}`;
+
+  let res;
+  try {
+    res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        ...authHeaders(),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({}),
+    });
+  } catch (err) {
+    return { error: `sign_request_failed: ${err.message}` };
   }
-  const pub = client.storage.from(bucket).getPublicUrl(objectPath);
+  const text = await res.text();
+  let payload = {};
+  try { payload = text ? JSON.parse(text) : {}; } catch { payload = { raw: text }; }
+  if (!res.ok) {
+    const msg = payload?.message || payload?.error || payload?.raw || `HTTP ${res.status}`;
+    return { error: String(msg).slice(0, 300) };
+  }
+
+  // `payload.url` is a relative path — turn it into an absolute URL the
+  // browser can PUT to directly. `payload.token` is also returned so a
+  // client using @supabase/storage-js uploadToSignedUrl() could use it —
+  // we PUT the absolute URL from `signedUrl` in our own admin.html flow.
+  const absoluteBase = (config.supabase.url || '').replace(/\/+$/, '');
+  const signedUrl = payload.url
+    ? (payload.url.startsWith('http') ? payload.url : `${absoluteBase}${payload.url.startsWith('/') ? '' : '/'}${payload.url}`)
+    : null;
+  if (!signedUrl) return { error: 'no_signed_url_returned' };
+
   return {
-    signedUrl: data.signedUrl,
-    token: data.token,
-    path: data.path || objectPath,
-    publicUrl: pub?.data?.publicUrl || null,
+    signedUrl,
+    token: payload.token || null,
+    path: objectPath,
+    publicUrl: publicUrlFor(objectPath),
     bucket,
   };
 }
 
-// Confirm the object exists at the path before we write its URL to the
-// DB. Cheap HEAD-like call via list() with a prefix filter — no bytes
-// pulled.
+// Check the object exists in the bucket. Uses the storage list endpoint
+// filtered by prefix + search — cheap, no bytes pulled.
 export async function objectExists(objectPath) {
-  const client = getClient();
-  if (!client || !objectPath) return false;
+  if (!storageConfigured() || !objectPath) return false;
+  const base = STORAGE_BASE();
   const { bucket } = config.supabase;
   const slash = objectPath.lastIndexOf('/');
   const prefix = slash >= 0 ? objectPath.slice(0, slash) : '';
   const name = slash >= 0 ? objectPath.slice(slash + 1) : objectPath;
-  const { data, error } = await client.storage.from(bucket).list(prefix, {
-    limit: 100,
-    search: name,
-  });
-  if (error || !Array.isArray(data)) return false;
-  return data.some((entry) => entry && entry.name === name);
-}
 
-export function publicUrlFor(objectPath) {
-  const client = getClient();
-  if (!client || !objectPath) return null;
-  const { bucket } = config.supabase;
-  const { data } = client.storage.from(bucket).getPublicUrl(objectPath);
-  return data?.publicUrl || null;
-}
-
-// Upload a buffer to `<bucket>/<objectPath>`. Returns { url, path } on
-// success or { error } on failure. `upsert: true` so re-uploading the
-// same path overwrites the old object (matches the "one active promo
-// video" invariant enforced by the DB).
-export async function uploadObject({ buffer, objectPath, contentType }) {
-  const client = getClient();
-  if (!client) {
-    return {
-      error:
-        'Storage not configured — set SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_BUCKET',
-    };
-  }
-  const { bucket } = config.supabase;
-  const { error: uploadErr } = await client.storage
-    .from(bucket)
-    .upload(objectPath, buffer, {
-      contentType: contentType || 'application/octet-stream',
-      upsert: true,
+  let res;
+  try {
+    res = await fetch(`${base}/object/list/${encodeURIComponent(bucket)}`, {
+      method: 'POST',
+      headers: {
+        ...authHeaders(),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ prefix, limit: 100, search: name }),
     });
-  if (uploadErr) {
-    return { error: uploadErr.message || 'upload_failed' };
+  } catch (err) {
+    console.warn('[storage] objectExists fetch failed:', err.message);
+    return false;
   }
-  const { data } = client.storage.from(bucket).getPublicUrl(objectPath);
-  if (!data || !data.publicUrl) {
-    return { error: 'no_public_url' };
-  }
-  return { url: data.publicUrl, path: objectPath, bucket };
+  if (!res.ok) return false;
+  const list = await res.json().catch(() => []);
+  if (!Array.isArray(list)) return false;
+  return list.some((entry) => entry && entry.name === name);
 }
 
-// Delete an object by path. No-op (with a warn) when storage isn't
-// configured — the caller (admin promo-video delete) still wants to
-// clear the DB row even if we can't reach Supabase.
-export async function removeObject(objectPath) {
-  const client = getClient();
-  if (!client || !objectPath) return { ok: false, error: 'no_client_or_path' };
+// Public URL is deterministic when the bucket is set to public. No API
+// call needed — construct it ourselves so callers don't pay a round trip.
+export function publicUrlFor(objectPath) {
+  if (!storageConfigured() || !objectPath) return null;
+  const base = (config.supabase.url || '').replace(/\/+$/, '');
   const { bucket } = config.supabase;
-  const { error } = await client.storage.from(bucket).remove([objectPath]);
-  if (error) return { ok: false, error: error.message };
+  return `${base}/storage/v1/object/public/${encodeURIComponent(bucket)}/${encodePath(objectPath)}`;
+}
+
+// Delete an object. Best-effort — callers use this to clean up the
+// previous promo video after uploading a new one; a failure here is
+// logged but never blocks the caller.
+export async function removeObject(objectPath) {
+  if (!storageConfigured() || !objectPath) {
+    return { ok: false, error: 'no_client_or_path' };
+  }
+  const base = STORAGE_BASE();
+  const { bucket } = config.supabase;
+  let res;
+  try {
+    res = await fetch(
+      `${base}/object/${encodeURIComponent(bucket)}/${encodePath(objectPath)}`,
+      { method: 'DELETE', headers: authHeaders() }
+    );
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    return { ok: false, error: `HTTP ${res.status} ${text}`.slice(0, 200) };
+  }
   return { ok: true };
+}
+
+// Kept for API compatibility with previous version — the admin flow no
+// longer buffers bytes on the backend, but a caller that wants to push
+// a small buffer can still use this. Uses the storage upload endpoint
+// directly (no SDK). Not exercised by the promo-video flow anymore.
+export async function uploadObject({ buffer, objectPath, contentType }) {
+  if (!storageConfigured()) {
+    return { error: 'storage_not_configured' };
+  }
+  const base = STORAGE_BASE();
+  const { bucket } = config.supabase;
+  let res;
+  try {
+    res = await fetch(
+      `${base}/object/${encodeURIComponent(bucket)}/${encodePath(objectPath)}`,
+      {
+        method: 'POST',
+        headers: {
+          ...authHeaders(),
+          'Content-Type': contentType || 'application/octet-stream',
+          'x-upsert': 'true',
+        },
+        body: buffer,
+      }
+    );
+  } catch (err) {
+    return { error: err.message };
+  }
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    return { error: `HTTP ${res.status} ${text}`.slice(0, 200) };
+  }
+  return { url: publicUrlFor(objectPath), path: objectPath, bucket };
 }
