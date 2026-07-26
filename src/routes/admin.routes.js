@@ -12,6 +12,7 @@ import {
   createSignedUploadUrl,
   objectExists,
   publicUrlFor,
+  ensureBucket,
 } from '../services/storage.service.js';
 
 const router = Router();
@@ -455,6 +456,19 @@ router.get('/promo-video', requireAdmin, async (_req, res) => {
          FROM promo_video WHERE id = 1`
     );
     const row = r.rows[0] || {};
+
+    // Verify the bucket up-front so the admin sees "bucket missing / creds
+    // wrong" in the panel banner instead of finding out mid-upload. Only
+    // runs when creds look plausible — otherwise we'd wait on a doomed
+    // request every time the panel loads.
+    let bucketOk = null;
+    let bucketError = null;
+    if (storageConfigured()) {
+      const check = await ensureBucket();
+      bucketOk = check.ok;
+      bucketError = check.ok ? null : check.error;
+    }
+
     return res.json({
       url: row.url || null,
       title: row.title || '',
@@ -462,6 +476,9 @@ router.get('/promo-video', requireAdmin, async (_req, res) => {
       storage_path: row.storage_path || null,
       updated_at: row.updated_at || null,
       storage_configured: storageConfigured(),
+      bucket: config.supabase.bucket,
+      bucket_ok: bucketOk,
+      bucket_error: bucketError,
     });
   } catch (err) {
     console.error('[admin/promo-video/get] error:', err);

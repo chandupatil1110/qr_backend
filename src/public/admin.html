@@ -614,9 +614,14 @@
         warn.style.color = 'var(--red)';
         warn.textContent =
           '⚠ Supabase Storage is not configured on the server. Uploads will be rejected until SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY and SUPABASE_BUCKET are set.';
+      } else if (p.bucket_ok === false) {
+        warn.style.color = 'var(--red)';
+        warn.textContent =
+          '⚠ Bucket "' + (p.bucket || '?') + '" is not reachable: ' + (p.bucket_error || 'unknown error');
       } else {
         warn.style.color = 'var(--text3)';
-        warn.textContent = 'MP4 / WebM / MOV up to 200 MB.';
+        warn.textContent =
+          'Bucket "' + (p.bucket || '?') + '" ready · MP4 / WebM / MOV up to 200 MB.';
       }
       if (p.url) {
         $('promo-current').classList.remove('hidden');

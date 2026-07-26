@@ -35,6 +35,91 @@ function encodePath(path) {
     .join('/');
 }
 
+// Cache the "bucket exists" answer so we don't hit /storage/v1/bucket on
+// every single upload. Reset if the caller passes a different bucket name
+// (env-var change without a container restart is unusual but possible).
+let _bucketReady = { name: null, ok: false };
+
+// Idempotent: make sure the configured bucket exists and is public.
+// Called before every signed-upload request so a fresh Supabase project
+// (no manually-created bucket) still works end-to-end. Returns
+// { ok: true } on success, { ok: false, error } otherwise — the caller
+// surfaces the message so the admin can see WHY it failed instead of
+// getting Supabase's opaque "The related resource does not exist".
+export async function ensureBucket() {
+  if (!storageConfigured()) {
+    return { ok: false, error: 'storage_not_configured' };
+  }
+  const base = STORAGE_BASE();
+  const { bucket } = config.supabase;
+
+  if (_bucketReady.name === bucket && _bucketReady.ok) {
+    return { ok: true };
+  }
+
+  // 1. Does the bucket already exist?
+  try {
+    const res = await fetch(
+      `${base}/bucket/${encodeURIComponent(bucket)}`,
+      { headers: authHeaders() }
+    );
+    if (res.ok) {
+      _bucketReady = { name: bucket, ok: true };
+      return { ok: true };
+    }
+    if (res.status !== 404 && res.status !== 400) {
+      // Auth failure (401/403) means the service_role_key is wrong or the
+      // URL/key are from different projects. Surface with the exact
+      // status so the admin can act on it.
+      const text = await res.text().catch(() => '');
+      return {
+        ok: false,
+        error: `Supabase bucket lookup failed (HTTP ${res.status}). ` +
+          `Check SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY point to the SAME project. ${text.slice(0, 200)}`,
+      };
+    }
+  } catch (err) {
+    return { ok: false, error: `bucket_lookup_failed: ${err.message}` };
+  }
+
+  // 2. Bucket doesn't exist — create it public so the getPublicUrl()
+  //    string we hand to the mobile player is actually readable. Also
+  //    lock the allowed mime types to videos + a 200MB per-object cap so
+  //    a bad upload can't stuff random data in here.
+  try {
+    const res = await fetch(`${base}/bucket`, {
+      method: 'POST',
+      headers: {
+        ...authHeaders(),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        id: bucket,
+        name: bucket,
+        public: true,
+        file_size_limit: 200 * 1024 * 1024,
+        allowed_mime_types: ['video/mp4', 'video/webm', 'video/quicktime'],
+      }),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      // 409 (already exists) is fine — race between two admin uploads.
+      if (res.status === 409) {
+        _bucketReady = { name: bucket, ok: true };
+        return { ok: true };
+      }
+      return {
+        ok: false,
+        error: `Supabase bucket create failed (HTTP ${res.status}): ${text.slice(0, 200)}`,
+      };
+    }
+    _bucketReady = { name: bucket, ok: true };
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: `bucket_create_failed: ${err.message}` };
+  }
+}
+
 // Ask Supabase for a short-lived URL the browser can PUT a file directly
 // to — skips our backend entirely for the file bytes. Response shape from
 // the REST API: { url: "/object/upload/sign/{bucket}/{path}?token=…",
@@ -47,6 +132,16 @@ export async function createSignedUploadUrl(objectPath) {
         'Storage not configured — set SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_BUCKET',
     };
   }
+
+  // Make sure the bucket exists before we ask Supabase to sign an upload
+  // URL into it. Without this a missing bucket surfaces as Supabase's
+  // opaque "The related resource does not exist" — the admin has no
+  // clue that means "create a bucket named X in your project".
+  const ready = await ensureBucket();
+  if (!ready.ok) {
+    return { error: ready.error };
+  }
+
   const base = STORAGE_BASE();
   const { bucket } = config.supabase;
   const endpoint = `${base}/object/upload/sign/${encodeURIComponent(bucket)}/${encodePath(objectPath)}`;
@@ -69,6 +164,12 @@ export async function createSignedUploadUrl(objectPath) {
   try { payload = text ? JSON.parse(text) : {}; } catch { payload = { raw: text }; }
   if (!res.ok) {
     const msg = payload?.message || payload?.error || payload?.raw || `HTTP ${res.status}`;
+    // If Supabase still complains about a missing resource here (rare —
+    // ensureBucket() just confirmed it), invalidate the cache so the
+    // next call re-checks + re-creates instead of trusting a stale yes.
+    if (String(msg).toLowerCase().includes('does not exist')) {
+      _bucketReady = { name: null, ok: false };
+    }
     return { error: String(msg).slice(0, 300) };
   }
 
