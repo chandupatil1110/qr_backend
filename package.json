@@ -36,5 +36,11 @@
     "socket.io": "^4.8.3",
     "uuid": "^11.1.0",
     "wawoff2": "^2.0.1"
+  },
+  "optionalDependencies": {
+    "@resvg/resvg-js-linux-x64-gnu": "^2.6.2",
+    "@resvg/resvg-js-linux-x64-musl": "^2.6.2",
+    "@resvg/resvg-js-linux-arm64-gnu": "^2.6.2",
+    "@resvg/resvg-js-linux-arm64-musl": "^2.6.2"
   }
 }
