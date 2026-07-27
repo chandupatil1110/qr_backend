@@ -30,7 +30,10 @@
     h1 { font-size: 1.4rem; margin: 0 0 8px; color: #FF7A00; font-weight: 800; } /* Bronze/Orange Accent */
     h2 { font-size: 1.15rem; margin: 0 0 12px; color: #F8FAFC; font-weight: 700; }
     p.sub { margin: 0 0 20px; color: #94A3B8; font-size: 0.9rem; line-height: 1.4; }
-    label { display: block; font-weight: 600; margin-bottom: 6px; font-size: 0.85rem; margin-top: 14px; color: #94A3B8; }
+    /* Field labels — bolder + brighter + slightly bigger than the muted
+       default, matching the Flutter form's _fieldLabelStyle. Left-aligned
+       above their inputs (users scan vertically). */
+    label { display: block; font-weight: 700; margin-bottom: 8px; font-size: 0.95rem; margin-top: 14px; color: #F8FAFC; }
     input, select {
       width: 100%;
       padding: 12px 14px;
@@ -102,12 +105,20 @@
       padding: 16px 16px 4px;
       margin-bottom: 16px;
     }
+    /* Section headers — bigger + centered, matches _cardHeaderStyle in
+       the Flutter Create-QR form. */
     .section-title {
-      font-size: 1rem;
+      font-size: 1.25rem;
       font-weight: 800;
       color: #F8FAFC;
-      margin: 0 0 4px;
+      margin: 0 0 10px;
+      text-align: center;
+      letter-spacing: -0.3px;
     }
+    /* Blood-group values are 2–3 chars; a full-width dropdown looked
+       oversized. Cap it so the trigger + native popup width stay tidy.
+       Matches the Flutter form's Align + SizedBox(width: 220) treatment. */
+    #reg-blood { max-width: 220px; }
     .section-sub {
       font-size: 0.8rem;
       color: #94A3B8;
@@ -129,24 +140,16 @@
       margin-bottom: 12px;
       position: relative;
     }
+    /* Contact N sub-header — centered + bold, matches the Flutter
+       Create-QR form's Contact N heading style. No remove button
+       anymore (all 4 rows are always shown), so the flex layout is
+       unnecessary — plain centered text is enough. */
     .contact-heading {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      font-weight: 700;
+      font-size: 1.1rem;
+      font-weight: 800;
       color: #F8FAFC;
-      margin-bottom: 4px;
-    }
-    .btn-remove-contact {
-      background: transparent;
-      color: #F87171;
-      border: none;
-      padding: 4px 6px;
-      width: auto;
-      margin-top: 0;
-      cursor: pointer;
-      font-size: 1.2rem;
-      line-height: 1;
+      margin-bottom: 8px;
+      text-align: center;
     }
     .pincode-wrap { position: relative; }
     .pincode-spinner {
@@ -245,7 +248,7 @@
       <input id="reg-email" placeholder="you@example.com" type="email" />
 
       <label>Vehicle Number *</label>
-      <input id="reg-vehicle" placeholder="Enter vehicle number"
+      <input id="reg-vehicle" placeholder="MH31CR0289"
              style="text-transform: uppercase;" />
 
       <label>Blood Group *</label>
@@ -329,27 +332,47 @@
     </div>
 
     <!-- ── Family Emergency Contacts ────────────────────────── -->
+    <!-- Fixed at 4 rows. Contact 1 is required; Contacts 2–4 are
+         optional and silently dropped on submit if left blank. -->
     <div class="section-card">
-      <div style="display: flex; align-items: center; justify-content: space-between;">
-        <p class="section-title" style="margin: 0;">Family Emergency Contacts</p>
-        <button type="button" id="btn-add-contact"
-                style="background: transparent; border: 1px solid #FF7A00;
-                       color: #FF7A00; padding: 6px 14px; width: auto;
-                       margin-top: 0; font-size: 0.85rem; border-radius: 10px;">
-          + Add
-        </button>
-      </div>
-      <p class="section-sub" style="margin-top: 8px;">You can add up to 4 emergency contacts.</p>
+      <p class="section-title">Family Emergency Contacts</p>
+      <p class="section-sub" style="text-align: center;">
+        Contact 1 is required. Contacts 2–4 are optional.
+      </p>
 
       <div id="family-contacts-container">
         <div class="family-contact-group">
-          <div class="contact-heading">
-            <span>Contact 1</span>
-            <button type="button" class="btn-remove-contact" aria-label="Remove contact">&times;</button>
-          </div>
+          <div class="contact-heading">Contact 1</div>
           <label>Name *</label>
           <input class="reg-fam-name" placeholder="Contact name" />
           <label>Phone Number *</label>
+          <input class="reg-fam-phone" placeholder="10-digit number"
+                 inputmode="numeric" maxlength="10" />
+        </div>
+
+        <div class="family-contact-group">
+          <div class="contact-heading">Contact 2 (optional)</div>
+          <label>Name</label>
+          <input class="reg-fam-name" placeholder="Contact name" />
+          <label>Phone Number</label>
+          <input class="reg-fam-phone" placeholder="10-digit number"
+                 inputmode="numeric" maxlength="10" />
+        </div>
+
+        <div class="family-contact-group">
+          <div class="contact-heading">Contact 3 (optional)</div>
+          <label>Name</label>
+          <input class="reg-fam-name" placeholder="Contact name" />
+          <label>Phone Number</label>
+          <input class="reg-fam-phone" placeholder="10-digit number"
+                 inputmode="numeric" maxlength="10" />
+        </div>
+
+        <div class="family-contact-group">
+          <div class="contact-heading">Contact 4 (optional)</div>
+          <label>Name</label>
+          <input class="reg-fam-name" placeholder="Contact name" />
+          <label>Phone Number</label>
           <input class="reg-fam-phone" placeholder="10-digit number"
                  inputmode="numeric" maxlength="10" />
         </div>
@@ -613,65 +636,6 @@
       showStep('register');
     };
 
-    // ── Family-contact add/remove ─────────────────────────────
-    // Every contact card gets a Remove (×) button. The FIRST contact
-    // stays visible — clicking × on the only remaining one clears the
-    // fields instead of removing the row, so the form still has one
-    // required contact to submit (matches Flutter form behaviour).
-    function renumberContacts() {
-      const groups = document.querySelectorAll('#family-contacts-container .family-contact-group');
-      groups.forEach((g, i) => {
-        const heading = g.querySelector('.contact-heading span');
-        if (heading) heading.textContent = 'Contact ' + (i + 1);
-      });
-      document.getElementById('btn-add-contact').style.display =
-        groups.length >= 4 ? 'none' : 'inline-block';
-    }
-
-    function attachRemoveHandler(group) {
-      const btn = group.querySelector('.btn-remove-contact');
-      if (!btn) return;
-      btn.addEventListener('click', () => {
-        const container = document.getElementById('family-contacts-container');
-        if (container.querySelectorAll('.family-contact-group').length === 1) {
-          // Last one — clear rather than remove.
-          group.querySelector('.reg-fam-name').value = '';
-          group.querySelector('.reg-fam-phone').value = '';
-          return;
-        }
-        group.remove();
-        renumberContacts();
-      });
-    }
-    // Wire the initial contact's remove button.
-    attachRemoveHandler(document.querySelector('#family-contacts-container .family-contact-group'));
-
-    document.getElementById('btn-add-contact').addEventListener('click', () => {
-      const container = document.getElementById('family-contacts-container');
-      const groups = container.querySelectorAll('.family-contact-group');
-      if (groups.length >= 4) {
-        showModal("Maximum 4 contacts allowed");
-        return;
-      }
-      const idx = groups.length + 1;
-      const newGroup = document.createElement('div');
-      newGroup.className = 'family-contact-group';
-      newGroup.innerHTML = `
-        <div class="contact-heading">
-          <span>Contact ${idx}</span>
-          <button type="button" class="btn-remove-contact" aria-label="Remove contact">&times;</button>
-        </div>
-        <label>Name *</label>
-        <input class="reg-fam-name" placeholder="Contact name" />
-        <label>Phone Number *</label>
-        <input class="reg-fam-phone" placeholder="10-digit number"
-               inputmode="numeric" maxlength="10" />
-      `;
-      container.appendChild(newGroup);
-      attachRemoveHandler(newGroup);
-      renumberContacts();
-    });
-
     // ── Pincode → City/State autofill ─────────────────────────
     // Same India Post endpoint the Flutter form uses. Debounced 400ms
     // after typing stops. Token guards against a slow old response
@@ -754,20 +718,38 @@
       if (!vCity) return showModal("City is required");
       if (!vState) return showModal("State is required");
 
+      // Contact 1 mandatory; Contacts 2–4 optional. A row where both
+      // name and phone are blank is silently skipped. A row with just
+      // one field filled fails validation — half a contact is useless.
       const groups = document.querySelectorAll('.family-contact-group');
-      if (groups.length === 0) return showModal("At least 1 Family Contact is required");
-
       const family = [];
-      for (const group of groups) {
+      for (let i = 0; i < groups.length; i++) {
+        const group = groups[i];
+        const isRequired = i === 0;
         const fn = group.querySelector('.reg-fam-name').value.trim();
         const fp = group.querySelector('.reg-fam-phone').value.trim();
 
-        if (!fn) return showModal("Contact Name is required for all contacts");
+        if (!isRequired && !fn && !fp) continue;
+
+        if (!fn) {
+          return showModal(
+            isRequired
+              ? "Contact 1 Name is required"
+              : `Contact ${i + 1}: name is required when phone is filled`
+          );
+        }
         if (fp.length !== 10 || !/^\d{10}$/.test(fp)) {
-          return showModal("Please enter a valid 10-digit mobile number for contacts");
+          return showModal(
+            isRequired
+              ? "Please enter a valid 10-digit mobile number for Contact 1"
+              : `Contact ${i + 1}: please enter a valid 10-digit mobile number`
+          );
         }
 
         family.push({ name: fn, phone: fp });
+      }
+      if (family.length === 0) {
+        return showModal("At least 1 Family Contact is required");
       }
 
       const btn = document.getElementById('btn-activate');
