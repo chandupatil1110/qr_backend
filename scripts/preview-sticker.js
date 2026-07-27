@@ -7,9 +7,9 @@ import fs from 'fs';
 
 const png = await renderStickerPng({
   alertUrl: 'https://pi-backend-qkjh.onrender.com/alert/preview',
-  digits: '10065',
+  digits: '70024',
   isManual: false, // false so the vehicle number renders too
-  vehicleNumber: 'MH40KR3448',
+  vehicleNumber: 'MH12AE0786',
 });
 fs.writeFileSync('scripts/preview.png', png);
 console.log('Wrote', png.length, 'bytes to scripts/preview.png');

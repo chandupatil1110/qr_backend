@@ -84,8 +84,11 @@ export async function ensureBucket() {
 
   // 2. Bucket doesn't exist — create it public so the getPublicUrl()
   //    string we hand to the mobile player is actually readable. Also
-  //    lock the allowed mime types to videos + a 200MB per-object cap so
-  //    a bad upload can't stuff random data in here.
+  //    lock the allowed mime types to videos + a 50MB per-object cap so
+  //    a bad upload can't stuff random data in here. 50MB matches the
+  //    Supabase free-plan global upload limit — raising this requires
+  //    raising "Global upload file size limit" in the project dashboard
+  //    first, otherwise bucket create fails with 413.
   try {
     const res = await fetch(`${base}/bucket`, {
       method: 'POST',
@@ -97,7 +100,7 @@ export async function ensureBucket() {
         id: bucket,
         name: bucket,
         public: true,
-        file_size_limit: 200 * 1024 * 1024,
+        file_size_limit: 50 * 1024 * 1024,
         allowed_mime_types: ['video/mp4', 'video/webm', 'video/quicktime'],
       }),
     });

@@ -172,7 +172,7 @@
       <h2>Home Screen Ad Video</h2>
       <p class="muted" style="margin-top: -6px; margin-bottom: 14px;">
         Upload a short video shown as an ad card on every user's home screen.
-        Uploading a new file replaces the current one. Max file size 200 MB.
+        Uploading a new file replaces the current one. Max file size 50 MB.
       </p>
       <div id="promo-err" class="err hidden"></div>
       <div id="promo-ok" class="success hidden"></div>
@@ -621,7 +621,7 @@
       } else {
         warn.style.color = 'var(--text3)';
         warn.textContent =
-          'Bucket "' + (p.bucket || '?') + '" ready · MP4 / WebM / MOV up to 200 MB.';
+          'Bucket "' + (p.bucket || '?') + '" ready · MP4 / WebM / MOV up to 50 MB.';
       }
       if (p.url) {
         $('promo-current').classList.remove('hidden');
@@ -646,8 +646,8 @@
       showPromoErr('Choose a video file first.');
       return;
     }
-    if (file.size > 200 * 1024 * 1024) {
-      showPromoErr('File is larger than 200 MB. Please compress it first.');
+    if (file.size > 50 * 1024 * 1024) {
+      showPromoErr('File is larger than 50 MB. Please compress it first.');
       return;
     }
 

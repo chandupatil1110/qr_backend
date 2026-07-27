@@ -17,6 +17,19 @@ const RED = '#E51E25';
 const INK = '#0F1115';
 const WHITE = '#FFFFFF';
 
+// Insert dashes between the segments of an Indian vehicle number to
+// match the sticker artwork (MH12AE0786 → MH12-AE-0786, 22BH1234AA →
+// 22-BH-1234-AA). Falls through unchanged for strings that don't match
+// either format so free-form/legacy values still render.
+function formatVehicleNumber(raw) {
+  const s = String(raw || '').replace(/[\s-]+/g, '').toUpperCase();
+  const std = s.match(/^([A-Z]{2})([0-9]{2})([A-Z]{1,2})([0-9]{4})$/);
+  if (std) return `${std[1]}${std[2]}-${std[3]}-${std[4]}`;
+  const bh = s.match(/^([0-9]{2})(BH)([0-9]{4})([A-Z]{1,2})$/);
+  if (bh) return `${bh[1]}-${bh[2]}-${bh[3]}-${bh[4]}`;
+  return s;
+}
+
 // ── Fonts ────────────────────────────────────────────────────────────
 //
 // resvg-js's prebuilt binary on Railway's build image was silently
@@ -91,6 +104,29 @@ try {
       'Run `npm install` in backend/ so @fontsource/*, wawoff2, opentype.js ' +
       `land in node_modules. (${e.message})`
   );
+}
+
+// Measure the rendered width of a string in the given font at the given
+// size, matching the exact glyph walk + kerning + letter-spacing that
+// textPath() uses. Callers use this to place icons and neighbouring text
+// with sub-pixel accuracy instead of relying on hardcoded estimates
+// (which drift whenever fonts, sizes, or copy change).
+export function measureTextWidth(text, { font, size, letterSpacing = 0 }) {
+  if (!font || !text) return 0;
+  const str = String(text);
+  const scale = size / font.unitsPerEm;
+  const glyphs = font.stringToGlyphs(str);
+  let advance = 0;
+  for (let i = 0; i < glyphs.length; i++) {
+    advance += glyphs[i].advanceWidth * scale;
+    if (i < glyphs.length - 1) {
+      const kern = font.getKerningValue
+        ? font.getKerningValue(glyphs[i], glyphs[i + 1]) * scale
+        : 0;
+      advance += kern + letterSpacing;
+    }
+  }
+  return advance;
 }
 
 // Serialise an opentype.js Path.commands array into an SVG `d`
@@ -256,13 +292,13 @@ function buildStickerSvg({ qrPngB64, digits, showVehicle, vehicleNumber }) {
   const PILL_Y = ROW_Y + (ROW_H - PILL_H) / 2;
 
   // Bottom row horizontal layout: BE NAYAK ... cross ... pill ... cross ... BE NAYAK
-  // Spacing budget (per side):
-  //   left edge (14) → BE NAYAK label (~80wide at 16pt) → 12px gap →
-  //   cross (28) → 8px gap → pill → 8px gap → cross → 12px gap → BE NAYAK
-  // Adds up cleanly at W=460.
+  // Every gap is computed from real measured widths so the row stays
+  // perfectly symmetric — no hardcoded label-width guesses that drift
+  // when font or copy changes.
   const CROSS_SIZE = 28;
-  const leftCrossCx = PILL_X - 20;
-  const rightCrossCx = PILL_X + PILL_W + 20;
+  const CROSS_TO_PILL_GAP = 12;
+  const leftCrossCx = PILL_X - CROSS_TO_PILL_GAP - CROSS_SIZE / 2;
+  const rightCrossCx = PILL_X + PILL_W + CROSS_TO_PILL_GAP + CROSS_SIZE / 2;
   const leftLabelX = 14;
   const rightLabelX = W - 14;
   const rowCy = ROW_Y + ROW_H / 2;
@@ -323,11 +359,13 @@ function buildStickerSvg({ qrPngB64, digits, showVehicle, vehicleNumber }) {
       font: FONT_BODY, size: 15, fill: WHITE, anchor: 'middle', letterSpacing: 2.4,
     })}
 
-    <!-- ── Vehicle number (auto-QR only) — uses mono so plate reads
-         cleanly and every character has the same width. ──────────── -->
+    <!-- ── Vehicle number — always shown when supplied (post-activation
+         manual QRs and auto-QRs both carry a vehicle). Mono so every
+         character has the same width; dashed formatting matches the
+         printed sticker artwork. ─────────────────────────────────── -->
     ${
       showVehicle
-        ? textPath((vehicleNumber || '').toUpperCase(), W / 2, HEADER_H + 32, {
+        ? textPath(formatVehicleNumber(vehicleNumber), W / 2, HEADER_H + 32, {
             font: FONT_MONO, size: 26, fill: RED, anchor: 'middle', letterSpacing: 1.5,
           })
         : ''
@@ -366,18 +404,14 @@ function buildStickerSvg({ qrPngB64, digits, showVehicle, vehicleNumber }) {
     })}
     ${cross(leftCrossCx, rowCy, CROSS_SIZE)}
 
-    <!-- Red pill with black digits — gradient + drop shadow so it
-         lifts off the white background like an inlaid enamel plate. -->
-    <g filter="url(#lift)">
-      <rect x="${PILL_X}" y="${PILL_Y}" width="${PILL_W}" height="${PILL_H}"
-            rx="8" ry="8" fill="url(#pillGrad)"
-            stroke="#8E0F16" stroke-width="0.8"/>
-      <!-- Top gloss strip -->
-      <rect x="${PILL_X + 2}" y="${PILL_Y + 2}" width="${PILL_W - 4}" height="${PILL_H * 0.42}"
-            rx="6" ry="6" fill="#FFFFFF" opacity="0.14"/>
-    </g>
+    <!-- White pill with red digits and a thin dark outline — matches the
+         printed sticker artwork exactly. Kept flat (no gradient / gloss)
+         so the digits pop crisply against the plain white body. -->
+    <rect x="${PILL_X}" y="${PILL_Y}" width="${PILL_W}" height="${PILL_H}"
+          rx="8" ry="8" fill="${WHITE}"
+          stroke="${INK}" stroke-width="1.4"/>
     ${textPath(digits || '—', W / 2, PILL_Y + 32, {
-      font: FONT_MONO, size: 26, fill: INK, anchor: 'middle', letterSpacing: 1.5,
+      font: FONT_MONO, size: 26, fill: RED, anchor: 'middle', letterSpacing: 1.5,
     })}
 
     ${cross(rightCrossCx, rowCy, CROSS_SIZE)}
@@ -403,64 +437,83 @@ function buildStickerSvg({ qrPngB64, digits, showVehicle, vehicleNumber }) {
 
 // ── Footer helpers ────────────────────────────────────────────────
 
-// Row 1 groups: globe icon + website on the left half, mail icon +
-// email on the right half. Right-aligning the email against W-16 (with
-// its icon just to the left) guarantees "support@qr4emergency.com" fits
-// even at font-size 12 without running off the sticker edge.
+// Row 1: globe + website chip on the left, mail + email chip on the
+// right. Uses real measured text widths so the icon-to-text gap is
+// EXACTLY the same on both sides, regardless of font metrics or copy
+// changes. Left-anchored on the left, right-anchored on the right —
+// gives symmetric visual weight against the sticker edges.
 function footerRow1(y) {
-  const leftIconX = 14;
-  const leftTextX = leftIconX + 20;
+  const ICON_SIZE = 14;
+  const ICON_TEXT_GAP = 8; // px gap between icon's right edge and text's left edge
+  const EDGE_PAD = 14;     // px from sticker edge to first/last element
+  const font = FONT_BODY;
+  const size = 12;
+
+  // Left side: globe icon at EDGE_PAD, text follows.
+  const leftIconX = EDGE_PAD;
+  const leftTextX = leftIconX + ICON_SIZE + ICON_TEXT_GAP;
+
+  // Right side: measure the email text FIRST, then place the icon just
+  // to its left with the exact same gap. This is what was drifting
+  // before — a hardcoded 175px estimate for a string that renders at
+  // ~155px meant the icon sat 20px too far left.
   const emailText = 'support@qr4emergency.com';
-  // Email is right-anchored (text-anchor="end") so the closing ".com"
-  // is guaranteed to sit against the right margin regardless of the
-  // font's actual rendered width. The mail icon is positioned to the
-  // left of an approximate 175px text extent so the icon-to-text gap
-  // stays visually consistent; a small under-estimate here just means
-  // the icon sits slightly closer to the text, never that text clips.
-  const rightTextRight = W - 14;
-  const estEmailWidth = 175;
-  const rightIconX = rightTextRight - estEmailWidth - 20;
+  const emailWidth = measureTextWidth(emailText, { font, size });
+  const rightTextRight = W - EDGE_PAD;
+  const rightTextLeft = rightTextRight - emailWidth;
+  const rightIconX = rightTextLeft - ICON_TEXT_GAP - ICON_SIZE;
+
   return `
-    ${iconGlobe(leftIconX, y - 10, 14, WHITE)}
+    ${iconGlobe(leftIconX, y - 10, ICON_SIZE, WHITE)}
     ${textPath('www.qr4emergency.com', leftTextX, y + 2, {
-      font: FONT_BODY, size: 12, fill: WHITE, anchor: 'start',
+      font, size, fill: WHITE, anchor: 'start',
     })}
 
-    ${iconMail(rightIconX, y - 10, 14, WHITE)}
+    ${iconMail(rightIconX, y - 10, ICON_SIZE, WHITE)}
     ${textPath(emailText, rightTextRight, y + 2, {
-      font: FONT_BODY, size: 12, fill: WHITE, anchor: 'end',
+      font, size, fill: WHITE, anchor: 'end',
     })}
   `;
 }
 
 // Row 2: three feature badges with thin white dividers between them.
-// Each [icon + gap + label] block is centred on the column's cx using
-// an approximate label width — labels have very different widths
-// ("NO PARKING" is ~30% wider than "TRACKING") so a single fixed
-// offset like row 1's was pushing NO PARKING off the sticker edge.
+// Each [icon + gap + label] block is centred on its column using the
+// REAL measured label width so ACCIDENT (short) and NO PARKING (long)
+// each sit dead-centre in their third. Dividers land halfway between
+// adjacent columns.
 function footerRow2(y) {
+  const ICON_SIZE = 16;
+  const ICON_TEXT_GAP = 6;
+  const FONT_SIZE = 13;
+  const LETTER_SPACING = 0.4;
+  const font = FONT_HEADING;
+  const opts = { font, size: FONT_SIZE, letterSpacing: LETTER_SPACING };
+
   const cols = [
-    { cx: W * 0.18, icon: iconWarning, label: 'ACCIDENT',   textW: 76 },
-    { cx: W * 0.50, icon: iconPin,     label: 'TRACKING',   textW: 74 },
-    { cx: W * 0.82, icon: iconParking, label: 'NO PARKING', textW: 100 },
+    { cx: W * 0.18, icon: iconWarning, label: 'ACCIDENT' },
+    { cx: W * 0.50, icon: iconPin,     label: 'TRACKING' },
+    { cx: W * 0.82, icon: iconParking, label: 'NO PARKING' },
   ];
-  const dividers = [W * 0.34, W * 0.66];
-  const iconSize = 16;
-  const gap = 6;
 
   let out = '';
   for (const c of cols) {
-    const totalW = iconSize + gap + c.textW;
+    const textW = measureTextWidth(c.label, opts);
+    const totalW = ICON_SIZE + ICON_TEXT_GAP + textW;
     const iconX = c.cx - totalW / 2;
-    const textX = iconX + iconSize + gap;
+    const textX = iconX + ICON_SIZE + ICON_TEXT_GAP;
     out += `
-      ${c.icon(iconX, y - 12, iconSize, WHITE)}
+      ${c.icon(iconX, y - 12, ICON_SIZE, WHITE)}
       ${textPath(c.label, textX, y + 2, {
-        font: FONT_HEADING, size: 13, fill: WHITE, anchor: 'start', letterSpacing: 0.4,
+        font, size: FONT_SIZE, fill: WHITE, anchor: 'start', letterSpacing: LETTER_SPACING,
       })}
     `;
   }
-  for (const dx of dividers) {
+  // Dividers sit halfway between column centres.
+  const divs = [
+    (cols[0].cx + cols[1].cx) / 2,
+    (cols[1].cx + cols[2].cx) / 2,
+  ];
+  for (const dx of divs) {
     out += `<line x1="${dx}" y1="${y - 14}" x2="${dx}" y2="${y + 8}"
                    stroke="${WHITE}" stroke-opacity="0.55" stroke-width="1"/>`;
   }
@@ -558,14 +611,17 @@ function escapeXml(s) {
  * @param {object} opts
  * @param {string} opts.alertUrl — URL encoded into the QR
  * @param {string|number} opts.digits — extension number shown in the pill
- * @param {boolean} [opts.isManual=true] — hides vehicle number when true
- * @param {string} [opts.vehicleNumber] — auto-QR case only
+ * @param {boolean} [opts.isManual=true] — kept for backwards compat only;
+ *   layout no longer switches on it. Vehicle number is shown whenever
+ *   supplied and skipped when empty (which is the mint-time state for
+ *   pre-activation manual stickers).
+ * @param {string} [opts.vehicleNumber] — Indian vehicle plate, any format
  * @returns {Promise<Buffer>} PNG bytes
  */
 export async function renderStickerPng({
   alertUrl,
   digits,
-  isManual = true,
+  isManual = true, // eslint-disable-line no-unused-vars
   vehicleNumber = '',
 }) {
   // Error correction Q → ~25% redundancy, so a scratched sticker still
@@ -580,8 +636,7 @@ export async function renderStickerPng({
     color: { dark: INK, light: WHITE },
   });
 
-  const showVehicle =
-    !isManual && vehicleNumber && vehicleNumber.trim().length > 0;
+  const showVehicle = Boolean(vehicleNumber && vehicleNumber.trim().length > 0);
 
   const svg = buildStickerSvg({
     qrPngB64: qrBuffer.toString('base64'),
