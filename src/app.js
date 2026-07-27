@@ -16,6 +16,8 @@ import adminRoutes from './routes/admin.routes.js';
 
 const app = express();
 
+
+
 // Trust Render's proxy so req.ip is the real client, not the LB. Required
 // for express-rate-limit to key on the actual caller.
 app.set('trust proxy', 1);
