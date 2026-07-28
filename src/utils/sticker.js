@@ -243,9 +243,11 @@ const W = 460;
  */
 function buildStickerSvg({ qrPngB64, digits, showVehicle, vehicleNumber }) {
   // Vertical layout — anchors declared top-down so the file reads in
-  // the same order as the sticker.
-  const HEADER_H = 108; // matches mobile Flutter Container height
-  const VEHICLE_ROW_H = showVehicle ? 40 : 8; // small gap even when hidden
+  // the same order as the sticker. Bumped to match the reference art:
+  // taller header for a much bigger "QR 4 EMERGENCY" wordmark, taller
+  // footer for larger badges + icons, outer red border ring.
+  const HEADER_H = 138;
+  const VEHICLE_ROW_H = showVehicle ? 44 : 8;
   const QR_FRAME_TOP = HEADER_H + VEHICLE_ROW_H;
   const QR_FRAME_W = 320;
   const QR_FRAME_H = 320;
@@ -255,12 +257,12 @@ function buildStickerSvg({ qrPngB64, digits, showVehicle, vehicleNumber }) {
   const QR_Y = QR_FRAME_TOP + (QR_FRAME_H - QR_SIZE) / 2;
 
   const AFTER_QR_Y = QR_FRAME_TOP + QR_FRAME_H;
-  const EXT_LABEL_Y = AFTER_QR_Y + 38; // +6 breathing room over previous
-  const ROW_Y = EXT_LABEL_Y + 20;
+  const EXT_LABEL_Y = AFTER_QR_Y + 42;
+  const ROW_Y = EXT_LABEL_Y + 22;
   const ROW_H = 46;
 
-  const FOOTER_TOP = ROW_Y + ROW_H + 24;
-  const FOOTER_H = 88;
+  const FOOTER_TOP = ROW_Y + ROW_H + 26;
+  const FOOTER_H = 118;
   const H = FOOTER_TOP + FOOTER_H;
 
   // Bracket arm length — bold Ls at every corner of the QR frame.
@@ -268,19 +270,21 @@ function buildStickerSvg({ qrPngB64, digits, showVehicle, vehicleNumber }) {
   const ARM = 42;
   const BRACKET_W = 8;
 
-  // Medical cross — two overlapping bars with a subtle darker underlay
-  // for depth (matches the pill's lifted-off-the-surface feel) and a
-  // faint highlight strip on top so it reads as raised enamel.
+  // Outer border ring — thin red stroke around the entire sticker.
+  // Reference art shows this as part of the printed edge trim; sticker
+  // vinyls also benefit from a visible cut-line for guillotine trimming.
+  const BORDER_W = 3;
+
+  // Medical cross — flat solid red plus sign. Matches the reference
+  // artwork exactly: no gradient, no drop shadow, no enamel highlight.
+  // Two overlapping rects (vertical bar + horizontal bar), same red as
+  // the header and footer bands so the cross reads as part of the
+  // brand system rather than a lifted-off-the-surface badge.
   const cross = (cx, cy, size) => {
     const bar = size * 0.32;
     return `
-      <g filter="url(#lift)">
-        <rect x="${cx - bar / 2}" y="${cy - size / 2}" width="${bar}" height="${size}" fill="${RED}"/>
-        <rect x="${cx - size / 2}" y="${cy - bar / 2}" width="${size}" height="${bar}" fill="${RED}"/>
-      </g>
-      <!-- top highlight strip on each arm -->
-      <rect x="${cx - bar / 2 + 0.6}" y="${cy - size / 2 + 0.6}" width="${bar - 1.2}" height="${size * 0.18}" fill="#FFFFFF" opacity="0.20"/>
-      <rect x="${cx - size / 2 + 0.6}" y="${cy - bar / 2 + 0.6}" width="${size - 1.2}" height="${bar * 0.35}" fill="#FFFFFF" opacity="0.16"/>
+      <rect x="${cx - bar / 2}" y="${cy - size / 2}" width="${bar}" height="${size}" fill="${RED}"/>
+      <rect x="${cx - size / 2}" y="${cy - bar / 2}" width="${size}" height="${bar}" fill="${RED}"/>
     `;
   };
 
@@ -307,7 +311,7 @@ function buildStickerSvg({ qrPngB64, digits, showVehicle, vehicleNumber }) {
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W * 3}" height="${H * 3}">
   <defs>
     <clipPath id="card">
-      <rect x="0" y="0" width="${W}" height="${H}" rx="22" ry="22"/>
+      <rect x="0" y="0" width="${W}" height="${H}" rx="32" ry="32"/>
     </clipPath>
 
     <!-- Gradients — subtle top-to-bottom variation gives the red bands
@@ -352,11 +356,15 @@ function buildStickerSvg({ qrPngB64, digits, showVehicle, vehicleNumber }) {
     <!-- Thin glossy highlight just below the top edge — sells the
          curved-plastic look without needing a full inner-shadow filter. -->
     <rect x="0" y="0" width="${W}" height="3" fill="#FFFFFF" opacity="0.22"/>
-    ${textPath('QR 4 EMERGENCY', W / 2, 64, {
-      font: FONT_HEADING, size: 40, fill: WHITE, anchor: 'middle', letterSpacing: -0.5,
+    <!-- "QR 4 EMERGENCY" wordmark — sized to fill ~90% of the sticker
+         width, matching the reference art. Poppins Black at size 50
+         with tighter tracking so it reads as one solid wordmark and
+         stays inside the sticker edges (W=460 minus edge pad). -->
+    ${textPath('QR 4 EMERGENCY', W / 2, 78, {
+      font: FONT_HEADING, size: 50, fill: WHITE, anchor: 'middle', letterSpacing: -1.5,
     })}
-    ${textPath('SCAN TO CALL OWNER', W / 2, 91, {
-      font: FONT_BODY, size: 15, fill: WHITE, anchor: 'middle', letterSpacing: 2.4,
+    ${textPath('SCAN TO CALL OWNER', W / 2, 116, {
+      font: FONT_BODY, size: 20, fill: WHITE, anchor: 'middle', letterSpacing: 3.0,
     })}
 
     <!-- ── Vehicle number — always shown when supplied (post-activation
@@ -365,8 +373,8 @@ function buildStickerSvg({ qrPngB64, digits, showVehicle, vehicleNumber }) {
          printed sticker artwork. ─────────────────────────────────── -->
     ${
       showVehicle
-        ? textPath(formatVehicleNumber(vehicleNumber), W / 2, HEADER_H + 32, {
-            font: FONT_MONO, size: 26, fill: RED, anchor: 'middle', letterSpacing: 1.5,
+        ? textPath(formatVehicleNumber(vehicleNumber), W / 2, HEADER_H + 36, {
+            font: FONT_MONO, size: 30, fill: RED, anchor: 'middle', letterSpacing: 1.5,
           })
         : ''
     }
@@ -378,7 +386,9 @@ function buildStickerSvg({ qrPngB64, digits, showVehicle, vehicleNumber }) {
            preserveAspectRatio="none"/>
 
     <!-- ── Bold black corner brackets around the QR ─────────── -->
-    <g fill="${INK}" filter="url(#lift)">
+    <!-- Flat solid black, no shadow — reference art shows them as a
+         printed graphic element, not a lifted badge. -->
+    <g fill="${INK}">
       <!-- top-left: horizontal + vertical arm -->
       <rect x="${QR_FRAME_X}" y="${QR_FRAME_TOP}" width="${ARM}" height="${BRACKET_W}"/>
       <rect x="${QR_FRAME_X}" y="${QR_FRAME_TOP}" width="${BRACKET_W}" height="${ARM}"/>
@@ -426,12 +436,21 @@ function buildStickerSvg({ qrPngB64, digits, showVehicle, vehicleNumber }) {
     <rect x="0" y="${FOOTER_TOP}" width="${W}" height="1.5" fill="#000000" opacity="0.25"/>
 
     <!-- Row 1: globe + website | mail + email -->
-    ${footerRow1(FOOTER_TOP + 20)}
+    ${footerRow1(FOOTER_TOP + 26)}
 
     <!-- Row 2: warning + ACCIDENT | pin + TRACKING | P + NO PARKING,
          separated by thin white vertical dividers -->
-    ${footerRow2(FOOTER_TOP + 60)}
+    ${footerRow2(FOOTER_TOP + 82)}
   </g>
+
+  <!-- ── Outer red border ring ────────────────────────────────
+       Thin red stroke around the whole sticker. Painted OUTSIDE the
+       clipPath so the rounded-rectangle stroke isn't cropped by the
+       clip. Matches the reference art's printed edge trim. -->
+  <rect x="${BORDER_W / 2}" y="${BORDER_W / 2}"
+        width="${W - BORDER_W}" height="${H - BORDER_W}"
+        rx="${32 - BORDER_W / 2}" ry="${32 - BORDER_W / 2}"
+        fill="none" stroke="${RED}" stroke-width="${BORDER_W}"/>
 </svg>`;
 }
 
@@ -482,9 +501,9 @@ function footerRow1(y) {
 // each sit dead-centre in their third. Dividers land halfway between
 // adjacent columns.
 function footerRow2(y) {
-  const ICON_SIZE = 16;
-  const ICON_TEXT_GAP = 6;
-  const FONT_SIZE = 13;
+  const ICON_SIZE = 22;
+  const ICON_TEXT_GAP = 8;
+  const FONT_SIZE = 18;
   const LETTER_SPACING = 0.4;
   const font = FONT_HEADING;
   const opts = { font, size: FONT_SIZE, letterSpacing: LETTER_SPACING };
@@ -502,8 +521,8 @@ function footerRow2(y) {
     const iconX = c.cx - totalW / 2;
     const textX = iconX + ICON_SIZE + ICON_TEXT_GAP;
     out += `
-      ${c.icon(iconX, y - 12, ICON_SIZE, WHITE)}
-      ${textPath(c.label, textX, y + 2, {
+      ${c.icon(iconX, y - 15, ICON_SIZE, WHITE)}
+      ${textPath(c.label, textX, y + 4, {
         font, size: FONT_SIZE, fill: WHITE, anchor: 'start', letterSpacing: LETTER_SPACING,
       })}
     `;
@@ -514,7 +533,7 @@ function footerRow2(y) {
     (cols[1].cx + cols[2].cx) / 2,
   ];
   for (const dx of divs) {
-    out += `<line x1="${dx}" y1="${y - 14}" x2="${dx}" y2="${y + 8}"
+    out += `<line x1="${dx}" y1="${y - 18}" x2="${dx}" y2="${y + 12}"
                    stroke="${WHITE}" stroke-opacity="0.55" stroke-width="1"/>`;
   }
   return out;
