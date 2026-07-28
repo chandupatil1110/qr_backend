@@ -386,22 +386,28 @@ function buildStickerSvg({ qrPngB64, digits, showVehicle, vehicleNumber }) {
            preserveAspectRatio="none"/>
 
     <!-- ── Bold black corner brackets around the QR ─────────── -->
-    <!-- Flat solid black, no shadow — reference art shows them as a
-         printed graphic element, not a lifted badge. -->
-    <g fill="${INK}">
-      <!-- top-left: horizontal + vertical arm -->
-      <rect x="${QR_FRAME_X}" y="${QR_FRAME_TOP}" width="${ARM}" height="${BRACKET_W}"/>
-      <rect x="${QR_FRAME_X}" y="${QR_FRAME_TOP}" width="${BRACKET_W}" height="${ARM}"/>
+    <!-- Each bracket is drawn as a single stroked path with rounded
+         line caps + join, so the outer bend curves and the arm tips
+         are semicircular rather than sharp squares. Matches the
+         reference art's soft-cornered scanner frame. -->
+    ${(() => {
+      const t = BRACKET_W / 2;
+      const x0 = QR_FRAME_X;
+      const y0 = QR_FRAME_TOP;
+      const x1 = QR_FRAME_X + QR_FRAME_W;
+      const y1 = QR_FRAME_TOP + QR_FRAME_H;
+      return `
+    <g stroke="${INK}" stroke-width="${BRACKET_W}" stroke-linecap="round" stroke-linejoin="round" fill="none">
+      <!-- top-left: horizontal arm tip → bend → vertical arm tip -->
+      <path d="M ${x0 + ARM} ${y0 + t} L ${x0 + t} ${y0 + t} L ${x0 + t} ${y0 + ARM}"/>
       <!-- top-right -->
-      <rect x="${QR_FRAME_X + QR_FRAME_W - ARM}" y="${QR_FRAME_TOP}" width="${ARM}" height="${BRACKET_W}"/>
-      <rect x="${QR_FRAME_X + QR_FRAME_W - BRACKET_W}" y="${QR_FRAME_TOP}" width="${BRACKET_W}" height="${ARM}"/>
+      <path d="M ${x1 - ARM} ${y0 + t} L ${x1 - t} ${y0 + t} L ${x1 - t} ${y0 + ARM}"/>
       <!-- bottom-left -->
-      <rect x="${QR_FRAME_X}" y="${QR_FRAME_TOP + QR_FRAME_H - BRACKET_W}" width="${ARM}" height="${BRACKET_W}"/>
-      <rect x="${QR_FRAME_X}" y="${QR_FRAME_TOP + QR_FRAME_H - ARM}" width="${BRACKET_W}" height="${ARM}"/>
+      <path d="M ${x0 + ARM} ${y1 - t} L ${x0 + t} ${y1 - t} L ${x0 + t} ${y1 - ARM}"/>
       <!-- bottom-right -->
-      <rect x="${QR_FRAME_X + QR_FRAME_W - ARM}" y="${QR_FRAME_TOP + QR_FRAME_H - BRACKET_W}" width="${ARM}" height="${BRACKET_W}"/>
-      <rect x="${QR_FRAME_X + QR_FRAME_W - BRACKET_W}" y="${QR_FRAME_TOP + QR_FRAME_H - ARM}" width="${BRACKET_W}" height="${ARM}"/>
-    </g>
+      <path d="M ${x1 - ARM} ${y1 - t} L ${x1 - t} ${y1 - t} L ${x1 - t} ${y1 - ARM}"/>
+    </g>`;
+    })()}
 
     <!-- ── "Extension Number" label ────────────────────────── -->
     ${textPath('Extension Number', W / 2, EXT_LABEL_Y, {
