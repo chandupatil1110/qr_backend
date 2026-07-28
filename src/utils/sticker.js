@@ -249,7 +249,7 @@ function buildStickerSvg({ qrPngB64, digits, showVehicle, vehicleNumber }) {
   // background rect behind each text label BEFORE painting the text,
   // which hides the bracket segment under the label. Longer bracket
   // arms so they reach almost to the text edges from each corner.
-  const HEADER_H = 108;
+  const HEADER_H = 92;
   const HEADER_TO_FRAME_GAP = 24; // clearance above vehicle text (text extends above frame top)
 
   const QR_SIZE = 260;
@@ -275,7 +275,7 @@ function buildStickerSvg({ qrPngB64, digits, showVehicle, vehicleNumber }) {
   const ROW_H = 52;
 
   const FOOTER_TOP = ROW_Y + ROW_H + 14;
-  const FOOTER_H = 96;
+  const FOOTER_H = 82;
   const H = FOOTER_TOP + FOOTER_H;
 
   // Bracket arm length — longer than usual so the arms extend inward
@@ -379,12 +379,12 @@ function buildStickerSvg({ qrPngB64, digits, showVehicle, vehicleNumber }) {
     <!-- "QR 4 EMERGENCY" wordmark — sized to fill ~90% of the sticker
          width. Poppins Black at size 50 with tighter tracking so it
          reads as one solid wordmark and stays inside the sticker edges.
-         Baselines shifted up for the compact 108px header. -->
-    ${textPath('QR 4 EMERGENCY', W / 2, 62, {
-      font: FONT_HEADING, size: 50, fill: WHITE, anchor: 'middle', letterSpacing: -1.5,
+         Baselines shifted up for the compact 92px header. -->
+    ${textPath('QR 4 EMERGENCY', W / 2, 54, {
+      font: FONT_HEADING, size: 46, fill: WHITE, anchor: 'middle', letterSpacing: -1.3,
     })}
-    ${textPath('SCAN TO CALL OWNER', W / 2, 92, {
-      font: FONT_BODY, size: 18, fill: WHITE, anchor: 'middle', letterSpacing: 2.6,
+    ${textPath('SCAN TO CALL OWNER', W / 2, 80, {
+      font: FONT_BODY, size: 17, fill: WHITE, anchor: 'middle', letterSpacing: 2.4,
     })}
 
     <!-- ── QR image ─────────────────────────────────────────── -->
@@ -492,11 +492,11 @@ function buildStickerSvg({ qrPngB64, digits, showVehicle, vehicleNumber }) {
     <rect x="0" y="${FOOTER_TOP}" width="${W}" height="1.5" fill="#000000" opacity="0.25"/>
 
     <!-- Row 1: globe + website | mail + email -->
-    ${footerRow1(FOOTER_TOP + 22)}
+    ${footerRow1(FOOTER_TOP + 20)}
 
     <!-- Row 2: warning + ACCIDENT | pin + TRACKING | P + NO PARKING,
          separated by thin white vertical dividers -->
-    ${footerRow2(FOOTER_TOP + 68)}
+    ${footerRow2(FOOTER_TOP + 60)}
   </g>
 
   <!-- ── Outer black border ring ──────────────────────────────
