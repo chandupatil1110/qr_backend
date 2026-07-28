@@ -242,32 +242,47 @@ const W = 460;
  * @returns {string} SVG document
  */
 function buildStickerSvg({ qrPngB64, digits, showVehicle, vehicleNumber }) {
-  // Vertical layout — compact spec: tighter red bands (header + footer),
-  // smaller QR frame, larger middle-section fonts (Extension Number,
-  // BE NAYAK). The header keeps the big wordmark by reducing the
-  // internal padding, not the type size.
+  // Vertical layout — the L-bracket frame outlines the QR area. The
+  // vehicle number and "Extension Number" text sit ON the top and
+  // bottom bracket lines (not inside the box) — the bracket line
+  // visually breaks around each label. Achieved by drawing a white
+  // background rect behind each text label BEFORE painting the text,
+  // which hides the bracket segment under the label. Longer bracket
+  // arms so they reach almost to the text edges from each corner.
   const HEADER_H = 108;
-  const VEHICLE_ROW_H = showVehicle ? 44 : 8;
-  const QR_FRAME_TOP = HEADER_H + VEHICLE_ROW_H;
-  const QR_FRAME_W = 260;
-  const QR_FRAME_H = 260;
-  const QR_FRAME_X = (W - QR_FRAME_W) / 2;
-  const QR_SIZE = 224;
-  const QR_X = (W - QR_SIZE) / 2;
-  const QR_Y = QR_FRAME_TOP + (QR_FRAME_H - QR_SIZE) / 2;
+  const HEADER_TO_FRAME_GAP = 24; // clearance above vehicle text (text extends above frame top)
 
-  const AFTER_QR_Y = QR_FRAME_TOP + QR_FRAME_H;
-  const EXT_LABEL_Y = AFTER_QR_Y + 40;
-  const ROW_Y = EXT_LABEL_Y + 22;
+  const QR_SIZE = 260;
+  const QR_MARGIN_TOP = 18;    // gap between QR top and top bracket line
+  const QR_MARGIN_BOTTOM = 18; // gap between QR bottom and bottom bracket line
+  const QR_FRAME_H = QR_SIZE + QR_MARGIN_TOP + QR_MARGIN_BOTTOM;
+  const QR_FRAME_W = 300;
+  const QR_FRAME_TOP = HEADER_H + HEADER_TO_FRAME_GAP;
+  const QR_FRAME_X = (W - QR_FRAME_W) / 2;
+  const QR_X = (W - QR_SIZE) / 2;
+  const QR_Y = QR_FRAME_TOP + QR_MARGIN_TOP;
+
+  // Text baselines centred vertically on the bracket lines. The 10 / 7
+  // offsets are ~35% of font size (matches Poppins/JetBrains Mono's
+  // baseline-to-visual-centre distance at the sizes we use).
+  const VEHICLE_BASELINE_Y = QR_FRAME_TOP + 10;              // sits ON top bracket line
+  const EXT_BASELINE_Y = QR_FRAME_TOP + QR_FRAME_H + 7;      // sits ON bottom bracket line
+
+  // Row below the frame — leave enough room for the extension text that
+  // extends BELOW the bottom bracket line.
+  const AFTER_FRAME_Y = QR_FRAME_TOP + QR_FRAME_H + 14;
+  const ROW_Y = AFTER_FRAME_Y + 6;
   const ROW_H = 52;
 
-  const FOOTER_TOP = ROW_Y + ROW_H + 22;
+  const FOOTER_TOP = ROW_Y + ROW_H + 14;
   const FOOTER_H = 96;
   const H = FOOTER_TOP + FOOTER_H;
 
-  // Bracket arm length — bold Ls at every corner of the QR frame.
-  // Scaled down proportionally to the smaller 260px QR frame.
-  const ARM = 36;
+  // Bracket arm length — longer than usual so the arms extend inward
+  // toward the vehicle/extension text, reinforcing the "text on the
+  // line" visual. The white bg rect behind each text hides the arm
+  // segment that would otherwise run underneath.
+  const ARM = 70;
   const BRACKET_W = 8;
 
   // Outer border ring — thin black stroke around the entire sticker.
@@ -372,18 +387,6 @@ function buildStickerSvg({ qrPngB64, digits, showVehicle, vehicleNumber }) {
       font: FONT_BODY, size: 18, fill: WHITE, anchor: 'middle', letterSpacing: 2.6,
     })}
 
-    <!-- ── Vehicle number — always shown when supplied (post-activation
-         manual QRs and auto-QRs both carry a vehicle). Mono so every
-         character has the same width; dashed formatting matches the
-         printed sticker artwork. ─────────────────────────────────── -->
-    ${
-      showVehicle
-        ? textPath(formatVehicleNumber(vehicleNumber), W / 2, HEADER_H + 32, {
-            font: FONT_MONO, size: 28, fill: RED, anchor: 'middle', letterSpacing: 1.5,
-          })
-        : ''
-    }
-
     <!-- ── QR image ─────────────────────────────────────────── -->
     <image href="data:image/png;base64,${qrPngB64}"
            x="${QR_X}" y="${QR_Y}"
@@ -414,10 +417,51 @@ function buildStickerSvg({ qrPngB64, digits, showVehicle, vehicleNumber }) {
     </g>`;
     })()}
 
-    <!-- ── "Extension Number" label ────────────────────────── -->
-    ${textPath('Extension Number', W / 2, EXT_LABEL_Y, {
-      font: FONT_HEADING, size: 22, fill: INK, anchor: 'middle', letterSpacing: 0.2,
-    })}
+    <!-- ── Vehicle number ON the top bracket line ─────────────────
+         Baseline lands so the text's vertical midline sits on the top
+         bracket edge. The white rect painted first hides the bracket
+         segment behind the text so the line visually "breaks" around
+         the label — matches the reference art. ─────────────────── -->
+    ${(() => {
+      if (!showVehicle) return '';
+      const label = formatVehicleNumber(vehicleNumber);
+      const textW = measureTextWidth(label, {
+        font: FONT_MONO, size: 28, letterSpacing: 1.5,
+      });
+      const padX = 10; // horizontal breathing room in the white gap
+      const padY = 4;
+      const bgX = W / 2 - textW / 2 - padX;
+      const bgY = QR_FRAME_TOP - 14 - padY;
+      const bgW = textW + padX * 2;
+      const bgH = 28 + padY * 2;
+      return `
+    <rect x="${bgX}" y="${bgY}" width="${bgW}" height="${bgH}" fill="${WHITE}"/>
+    ${textPath(label, W / 2, VEHICLE_BASELINE_Y, {
+      font: FONT_MONO, size: 28, fill: RED, anchor: 'middle', letterSpacing: 1.5,
+    })}`;
+    })()}
+
+    <!-- ── "Extension Number" ON the bottom bracket line ──────────
+         Same "text on line" treatment as the vehicle number. Poppins
+         Black 20pt matches BE NAYAK's typography so the two labels
+         read as a matched pair. ────────────────────────────────── -->
+    ${(() => {
+      const label = 'Extension Number';
+      const textW = measureTextWidth(label, {
+        font: FONT_HEADING, size: 20, letterSpacing: 0.2,
+      });
+      const padX = 10;
+      const padY = 4;
+      const bgX = W / 2 - textW / 2 - padX;
+      const bgY = QR_FRAME_TOP + QR_FRAME_H - 10 - padY;
+      const bgW = textW + padX * 2;
+      const bgH = 20 + padY * 2;
+      return `
+    <rect x="${bgX}" y="${bgY}" width="${bgW}" height="${bgH}" fill="${WHITE}"/>
+    ${textPath(label, W / 2, EXT_BASELINE_Y, {
+      font: FONT_HEADING, size: 20, fill: INK, anchor: 'middle', letterSpacing: 0.2,
+    })}`;
+    })()}
 
     <!-- ── Bottom row: BE NAYAK · cross · pill · cross · BE NAYAK ── -->
     ${textPath('BE NAYAK', leftLabelX, rowCy + 7, {
