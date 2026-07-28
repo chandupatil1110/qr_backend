@@ -60,9 +60,15 @@ router.post(
     // renders instantly even if the SMS provider is slow. Product
     // requirement: SMS goes out on scan regardless of which button
     // (if any) the bystander taps.
-    sendScanAlertToAll(qr.id).catch((e) =>
-      console.error('[alert/verify] sendScanAlertToAll:', e)
-    );
+    sendScanAlertToAll(qr.id)
+      .then((r) =>
+        console.log(
+          `[alert/verify] scan-alert result qr_id=${qr.id} ${JSON.stringify(r)}`
+        )
+      )
+      .catch((e) =>
+        console.error('[alert/verify] sendScanAlertToAll threw:', e)
+      );
 
     return res.json({
       verified: true,
@@ -203,9 +209,15 @@ router.post(
       // SMS to owner + every emergency contact — same broadcast that
       // fired on /verify. Repeated on tap so a phone that missed the
       // first send still gets a retry.
-      sendScanAlertToAll(qr.id).catch((e) =>
-        console.error('[alert/event] sendScanAlertToAll:', e)
-      );
+      sendScanAlertToAll(qr.id)
+        .then((r) =>
+          console.log(
+            `[alert/event] scan-alert result qr_id=${qr.id} ${JSON.stringify(r)}`
+          )
+        )
+        .catch((e) =>
+          console.error('[alert/event] sendScanAlertToAll threw:', e)
+        );
 
       // Fire-and-forget push to the QR owner: "your QR was just scanned".
       // Runs after res.json so a slow FCM call can't stretch the response.

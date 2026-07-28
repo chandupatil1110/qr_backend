@@ -349,19 +349,46 @@ export async function sendQrSuccess({ mobile, owner_name }) {
 // contact (owner + up to 4 family = 5 recipients max). Fire-and-forget:
 // per-recipient failures never throw. Callers hit this on scan and on
 // tap, so a phone that missed the first send still gets a retry.
+//
+// Observability: logs per-recipient outcome so we can tell at a glance
+// whether family SMS actually left the box. Phones are truncated to the
+// last 4 digits so the log lines don't leak PII wholesale.
 export async function sendScanAlertToAll(qrId) {
   const data = await getScanAlertRecipients(qrId);
   if (!data || !data.recipients.length) {
+    console.warn(
+      `[sms/scan-alert] no recipients for qr_id=${qrId} — check family_details`
+    );
     return { ok: false, error: 'no_recipients' };
   }
+  const tails = data.recipients.map((p) => String(p).replace(/\D/g, '').slice(-4));
+  console.log(
+    `[sms/scan-alert] qr_id=${qrId} vehicle=${data.vehicle} ` +
+      `recipients=${data.recipients.length} tails=[${tails.join(',')}]`
+  );
   const results = await Promise.all(
-    data.recipients.map((phone) =>
-      dispatchTemplate(TEMPLATES.QR_SCAN_ALERT, phone, data.vehicle).catch(
-        (err) => ({ ok: false, error: err?.message || 'dispatch_threw' })
-      )
+    data.recipients.map((phone, i) =>
+      dispatchTemplate(TEMPLATES.QR_SCAN_ALERT, phone, data.vehicle)
+        .catch((err) => ({ ok: false, error: err?.message || 'dispatch_threw' }))
+        .then((r) => {
+          const tail = tails[i];
+          if (r && r.ok) {
+            console.log(
+              `[sms/scan-alert] ✓ tail=${tail} sid=${r.messageId || '-'}`
+            );
+          } else {
+            console.warn(
+              `[sms/scan-alert] ✗ tail=${tail} err=${r?.error || 'unknown'}`
+            );
+          }
+          return r;
+        })
     )
   );
   const okCount = results.filter((r) => r && r.ok).length;
+  console.log(
+    `[sms/scan-alert] qr_id=${qrId} summary sent=${okCount}/${results.length}`
+  );
   return { ok: okCount > 0, sent: okCount, total: results.length };
 }
 
