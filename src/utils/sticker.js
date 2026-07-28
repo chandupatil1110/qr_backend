@@ -275,7 +275,7 @@ function buildStickerSvg({ qrPngB64, digits, showVehicle, vehicleNumber }) {
   const ROW_H = 52;
 
   const FOOTER_TOP = ROW_Y + ROW_H + 14;
-  const FOOTER_H = 72;
+  const FOOTER_H = 60;
   const H = FOOTER_TOP + FOOTER_H;
 
   // Bracket arm length — longer than usual so the arms extend inward
@@ -490,11 +490,12 @@ function buildStickerSvg({ qrPngB64, digits, showVehicle, vehicleNumber }) {
     <rect x="0" y="${FOOTER_TOP}" width="${W}" height="1.5" fill="#000000" opacity="0.25"/>
 
     <!-- Row 1: globe + website | mail + email -->
-    ${footerRow1(FOOTER_TOP + 18)}
+    ${footerRow1(FOOTER_TOP + 16)}
 
     <!-- Row 2: warning + ACCIDENT | pin + TRACKING | P + NO PARKING,
-         separated by thin white vertical dividers -->
-    ${footerRow2(FOOTER_TOP + 54)}
+         separated by thin white vertical dividers. Baseline pulled
+         closer to Row 1 (was +54, now +44) for the tighter footer. -->
+    ${footerRow2(FOOTER_TOP + 44)}
   </g>
 
   <!-- ── Outer black border ring ──────────────────────────────
