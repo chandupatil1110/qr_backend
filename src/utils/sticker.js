@@ -443,14 +443,14 @@ function buildStickerSvg({ qrPngB64, digits, showVehicle, vehicleNumber }) {
     ${footerRow2(FOOTER_TOP + 82)}
   </g>
 
-  <!-- ── Outer red border ring ────────────────────────────────
-       Thin red stroke around the whole sticker. Painted OUTSIDE the
+  <!-- ── Outer black border ring ──────────────────────────────
+       Thin black stroke around the whole sticker. Painted OUTSIDE the
        clipPath so the rounded-rectangle stroke isn't cropped by the
        clip. Matches the reference art's printed edge trim. -->
   <rect x="${BORDER_W / 2}" y="${BORDER_W / 2}"
         width="${W - BORDER_W}" height="${H - BORDER_W}"
         rx="${32 - BORDER_W / 2}" ry="${32 - BORDER_W / 2}"
-        fill="none" stroke="${RED}" stroke-width="${BORDER_W}"/>
+        fill="none" stroke="${INK}" stroke-width="${BORDER_W}"/>
 </svg>`;
 }
 
@@ -515,22 +515,30 @@ function footerRow2(y) {
   ];
 
   let out = '';
-  for (const c of cols) {
+  // Compute each badge's real horizontal extent so we can drop dividers
+  // in the ACTUAL gap between adjacent badges (not the fixed column
+  // midpoints). Prevents the previous collision where NO PARKING's (P)
+  // circle came within ~4px of the divider hairline.
+  const boxes = cols.map((c) => {
     const textW = measureTextWidth(c.label, opts);
     const totalW = ICON_SIZE + ICON_TEXT_GAP + textW;
     const iconX = c.cx - totalW / 2;
     const textX = iconX + ICON_SIZE + ICON_TEXT_GAP;
+    return { c, iconX, textX, totalW, leftEdge: iconX, rightEdge: iconX + totalW };
+  });
+  for (const b of boxes) {
     out += `
-      ${c.icon(iconX, y - 15, ICON_SIZE, WHITE)}
-      ${textPath(c.label, textX, y + 4, {
+      ${b.c.icon(b.iconX, y - 15, ICON_SIZE, WHITE)}
+      ${textPath(b.c.label, b.textX, y + 4, {
         font, size: FONT_SIZE, fill: WHITE, anchor: 'start', letterSpacing: LETTER_SPACING,
       })}
     `;
   }
-  // Dividers sit halfway between column centres.
+  // Dividers land at the midpoint of the actual gap between adjacent
+  // badge boxes → guaranteed equal breathing room on both sides.
   const divs = [
-    (cols[0].cx + cols[1].cx) / 2,
-    (cols[1].cx + cols[2].cx) / 2,
+    (boxes[0].rightEdge + boxes[1].leftEdge) / 2,
+    (boxes[1].rightEdge + boxes[2].leftEdge) / 2,
   ];
   for (const dx of divs) {
     out += `<line x1="${dx}" y1="${y - 18}" x2="${dx}" y2="${y + 12}"
