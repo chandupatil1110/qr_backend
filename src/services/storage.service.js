@@ -177,13 +177,20 @@ export async function createSignedUploadUrl(objectPath) {
     return { error: String(msg).slice(0, 300) };
   }
 
-  // `payload.url` is a relative path — turn it into an absolute URL the
-  // browser can PUT to directly. `payload.token` is also returned so a
+  // `payload.url` is a relative path served by the STORAGE service —
+  // e.g. "/object/upload/sign/promo/foo.mp4?token=...". To turn it into
+  // an absolute URL the browser can PUT to, we prepend the storage base
+  // (https://<project>.supabase.co/storage/v1), NOT the bare project URL.
+  // Prepending just the project URL drops the "/storage/v1" prefix, and
+  // Supabase's CDN responds 404 to the CORS preflight on that shorter
+  // path — the file never uploads. `payload.token` is also returned so a
   // client using @supabase/storage-js uploadToSignedUrl() could use it —
   // we PUT the absolute URL from `signedUrl` in our own admin.html flow.
-  const absoluteBase = (config.supabase.url || '').replace(/\/+$/, '');
+  const storageBase = STORAGE_BASE();
   const signedUrl = payload.url
-    ? (payload.url.startsWith('http') ? payload.url : `${absoluteBase}${payload.url.startsWith('/') ? '' : '/'}${payload.url}`)
+    ? (payload.url.startsWith('http')
+        ? payload.url
+        : `${storageBase}${payload.url.startsWith('/') ? '' : '/'}${payload.url}`)
     : null;
   if (!signedUrl) return { error: 'no_signed_url_returned' };
 
