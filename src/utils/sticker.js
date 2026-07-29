@@ -80,30 +80,49 @@ function parseOpentype(u8) {
 export let FONT_HEADING = null; // Poppins 900 — headings, brackets, footer badges
 export let FONT_BODY = null;    // Poppins 600 — labels, website/email
 export let FONT_MONO = null;    // JetBrains Mono 700 — vehicle plate + digits
-try {
-  // Top-level await — Node 18 (Railway) supports this in ESM. It blocks
-  // downstream importers (server.js → app.js → routes → services) so
-  // the HTTP server never starts listening before fonts parse.
-  //
-  // Sequential (not Promise.all) because wawoff2's WASM instance holds
-  // a single shared memory buffer; concurrent decompresses corrupt each
-  // other's output even though the promises settle without error.
-  const ttf900 = await loadTtfFromWoff2('@fontsource/poppins/files/poppins-latin-900-normal');
-  const ttf600 = await loadTtfFromWoff2('@fontsource/poppins/files/poppins-latin-600-normal');
-  const ttfMono = await loadTtfFromWoff2('@fontsource/jetbrains-mono/files/jetbrains-mono-latin-700-normal');
-  FONT_HEADING = parseOpentype(ttf900);
-  FONT_BODY = parseOpentype(ttf600);
-  FONT_MONO = parseOpentype(ttfMono);
-  console.log(
-    `[sticker] fonts decompressed + parsed: Poppins 900 (${ttf900.length}B), ` +
-      `Poppins 600 (${ttf600.length}B), JetBrains Mono 700 (${ttfMono.length}B)`
-  );
-} catch (e) {
-  console.error(
-    '[sticker] FONT LOAD FAILED — stickers will render without text. ' +
-      'Run `npm install` in backend/ so @fontsource/*, wawoff2, opentype.js ' +
-      `land in node_modules. (${e.message})`
-  );
+
+// Fonts are loaded in the BACKGROUND after module import — NOT with
+// a top-level await. Previously a top-level await here blocked the
+// entire import chain (server.js → app.js → routes → services →
+// utils/sticker.js), so the HTTP server didn't bind until ~5-15s of
+// sequential WOFF2/Brotli decompression + opentype parsing finished.
+// On Railway that showed up as slow deploys — the container was up
+// but /health didn't respond, and Railway's wait-for-healthy phase
+// stretched the deploy by minutes. Lazy loading fixes that: import
+// is instant, server binds immediately, and sticker-generating
+// endpoints (rare — manual QR mint only) await the promise below.
+//
+// Sequential (not Promise.all) because wawoff2's WASM instance holds
+// a single shared memory buffer; concurrent decompresses corrupt each
+// other's output even though the promises settle without error.
+const _fontsPromise = (async () => {
+  try {
+    const ttf900 = await loadTtfFromWoff2('@fontsource/poppins/files/poppins-latin-900-normal');
+    const ttf600 = await loadTtfFromWoff2('@fontsource/poppins/files/poppins-latin-600-normal');
+    const ttfMono = await loadTtfFromWoff2('@fontsource/jetbrains-mono/files/jetbrains-mono-latin-700-normal');
+    FONT_HEADING = parseOpentype(ttf900);
+    FONT_BODY = parseOpentype(ttf600);
+    FONT_MONO = parseOpentype(ttfMono);
+    console.log(
+      `[sticker] fonts decompressed + parsed: Poppins 900 (${ttf900.length}B), ` +
+        `Poppins 600 (${ttf600.length}B), JetBrains Mono 700 (${ttfMono.length}B)`
+    );
+    return true;
+  } catch (e) {
+    console.error(
+      '[sticker] FONT LOAD FAILED — stickers will render without text. ' +
+        'Run `npm install` in backend/ so @fontsource/*, wawoff2, opentype.js ' +
+        `land in node_modules. (${e.message})`
+    );
+    return false;
+  }
+})();
+
+// Callers that need fonts (renderStickerPng) await this before rendering.
+// Idempotent — the promise resolves once and every subsequent await gets
+// the cached result immediately.
+export async function ensureFontsLoaded() {
+  return _fontsPromise;
 }
 
 // Measure the rendered width of a string in the given font at the given
@@ -714,6 +733,12 @@ export async function renderStickerPng({
   isManual = true, // eslint-disable-line no-unused-vars
   vehicleNumber = '',
 }) {
+  // Wait for the background font load to finish before rendering.
+  // First sticker render pays the ~5-15s cost once; subsequent renders
+  // (and any renders after boot has been running for a few seconds)
+  // hit the resolved promise immediately.
+  await ensureFontsLoaded();
+
   // Error correction Q → ~25% redundancy, so a scratched sticker still
   // scans. QR has no logo overlay here, so we could get away with M,
   // but the sticker gets stuck on windshields — dust and abrasion
@@ -743,35 +768,38 @@ export async function renderStickerPng({
   return resvg.render().asPng();
 }
 
-// Boot-time self-test — pre-renders the letter "A" via opentype.js
-// (same path text takes on real stickers) and rasterises it. Confirms
-// both the font parsed AND resvg can paint the resulting geometry.
-// Logs LOUDLY so Railway logs immediately show whether stickers will
-// have text or not.
-try {
-  const probePath = textPath('A', 0, 16, {
-    font: FONT_HEADING, size: 16, fill: '#000000', anchor: 'start',
-  });
-  const probeSvg = `<?xml version="1.0"?>
+// Self-test — pre-renders the letter "A" via opentype.js (same path
+// text takes on real stickers) and rasterises it. Confirms both the
+// font parsed AND resvg can paint the resulting geometry. Runs AFTER
+// fonts finish loading in the background, so it doesn't block boot.
+// Logs LOUDLY so Railway logs still show whether stickers will render.
+_fontsPromise.then((ok) => {
+  if (!ok) return; // font load already logged its failure
+  try {
+    const probePath = textPath('A', 0, 16, {
+      font: FONT_HEADING, size: 16, fill: '#000000', anchor: 'start',
+    });
+    const probeSvg = `<?xml version="1.0"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 20" width="40" height="20">
   <rect width="40" height="20" fill="#ffffff"/>
   ${probePath}
 </svg>`;
-  const probe = new Resvg(probeSvg, { background: WHITE }).render().asPng();
-  // A blank 40×20 white PNG is ~150 bytes; an 'A' glyph pushes it well
-  // past 300. Not a bulletproof check but catches "no font loaded at
-  // all" without needing pixel-level inspection.
-  const hasText = probe.length > 300;
-  if (hasText) {
-    console.log(`[sticker] font self-test PASSED — probe png=${probe.length}B (opentype path rendered)`);
-  } else {
-    console.error(
-      `[sticker] FONT SELF-TEST FAILED — probe png=${probe.length}B ` +
-        `is suspiciously small, text likely won't render on stickers. ` +
-        `Check @fontsource/* is installed and this resvg-js binary ` +
-        `supports the font format we're passing.`
-    );
+    const probe = new Resvg(probeSvg, { background: WHITE }).render().asPng();
+    // A blank 40×20 white PNG is ~150 bytes; an 'A' glyph pushes it
+    // well past 300. Not a bulletproof check but catches "no font
+    // loaded at all" without needing pixel-level inspection.
+    const hasText = probe.length > 300;
+    if (hasText) {
+      console.log(`[sticker] font self-test PASSED — probe png=${probe.length}B (opentype path rendered)`);
+    } else {
+      console.error(
+        `[sticker] FONT SELF-TEST FAILED — probe png=${probe.length}B ` +
+          `is suspiciously small, text likely won't render on stickers. ` +
+          `Check @fontsource/* is installed and this resvg-js binary ` +
+          `supports the font format we're passing.`
+      );
+    }
+  } catch (probeErr) {
+    console.error('[sticker] font self-test threw:', probeErr.message);
   }
-} catch (probeErr) {
-  console.error('[sticker] font self-test threw:', probeErr.message);
-}
+});
