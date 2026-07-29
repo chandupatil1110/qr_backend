@@ -10,6 +10,14 @@ import { config } from '../config/index.js';
 const OTP_TTL_MINUTES = 10;
 const MAX_ATTEMPTS = 5;
 
+// Play Store review credential. Google's review team can't receive our
+// SMS OTP (no real SIM), so this fixed pair bypasses issue+verify. Keep
+// the mobile number here in sync with what's submitted in the Play
+// Console review form. Do NOT share this pair outside of the Play
+// listing — anyone with it can log in as this user.
+const REVIEW_MOBILE = '9665108102';
+const REVIEW_OTP = '9876';
+
 export async function findOrCreateUserByMobile(mobile) {
   const existing = await pool.query('SELECT * FROM users WHERE mobile = $1', [mobile]);
   if (existing.rows.length) return existing.rows[0];
@@ -60,6 +68,12 @@ async function ensureLoginOtpTable(client) {
 // PLAIN-TEXT OTP so the caller can pipe it to the SMS transport — never
 // log this or return it to a client.
 export async function issueLoginOtp(mobile) {
+  // Play Store review number short-circuits SMS delivery. Return the
+  // fixed review OTP so the route layer's SMS call is a no-op (console
+  // provider logs it; live providers are gated on config anyway).
+  if (String(mobile).trim() === REVIEW_MOBILE) {
+    return REVIEW_OTP;
+  }
   const client = await pool.connect();
   try {
     await ensureLoginOtpTable(client);
@@ -107,6 +121,14 @@ export async function verifyOtpAndLogin(mobile, otp) {
     const err = new Error('OTP must be 4 digits');
     err.statusCode = 400;
     throw err;
+  }
+
+  // Play Store review bypass. Fixed OTP for the fixed number — skips
+  // DB lookup entirely so no login_otp row is required to exist.
+  if (String(mobile).trim() === REVIEW_MOBILE && otpStr === REVIEW_OTP) {
+    const user = await findOrCreateUserByMobile(REVIEW_MOBILE);
+    const token = issueToken(user.id);
+    return { user, token };
   }
 
   // Grab the most recent unused OTP for this mobile. Older ones were

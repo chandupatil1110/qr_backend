@@ -19,6 +19,12 @@ router.post(
     try {
       const mobile = String(req.body.mobile).trim();
       const otp = await issueLoginOtp(mobile);
+      // Play Store reviewer credential — no SMS dispatch, the reviewer
+      // types the fixed OTP baked into auth.service.js. Kept in the
+      // route (not the service) so the SMS provider isn't called at all.
+      if (mobile === '9665108102') {
+        return res.json({ message: 'OTP sent' });
+      }
       // Deliver via SMS. The console provider always returns ok:true;
       // live adapters (msg91/exotel/twilio) return {ok:false, error}
       // on delivery failure. If SMS actually fails, we surface a 503
