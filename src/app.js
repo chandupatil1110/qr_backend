@@ -120,6 +120,30 @@ app.use((req, res, next) => {
   next();
 });
 
+// Legacy Railway hostname → custom domain redirect. Physical QR stickers
+// printed before the custom-domain migration have `qrbackend-production-
+// f691.up.railway.app` baked into the QR image forever. This middleware
+// 301s browser-based hits on the old host to the same path on
+// api.qr4emergency.com so users end up on the canonical URL (which their
+// browser then caches thanks to the 301).
+//
+// IMPORTANT: only redirects GET/HEAD. POST/PUT/DELETE requests are left
+// alone — otherwise Razorpay webhooks, Exotel callbacks, and older mobile
+// app builds that may still hit the old hostname programmatically would
+// break (most HTTP clients don't follow 301 with a preserved body).
+//
+// This does NOT help users whose DNS resolver can't reach the old host
+// at all — those users never reach this server. Only fix for them is a
+// replacement sticker or a client-side DNS workaround.
+const LEGACY_HOST = 'qrbackend-production-f691.up.railway.app';
+const CANONICAL_HOST = 'api.qr4emergency.com';
+app.use((req, res, next) => {
+  const host = String(req.headers.host || '').toLowerCase();
+  if (host !== LEGACY_HOST) return next();
+  if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+  return res.redirect(301, `https://${CANONICAL_HOST}${req.originalUrl}`);
+});
+
 app.get('/health', (req, res) => res.json({ ok: true }));
 
 app.use('/auth', authAlertLimiter, authRoutes);

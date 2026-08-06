@@ -206,18 +206,11 @@ router.post(
         ]
       );
 
-      // SMS to owner + every emergency contact — same broadcast that
-      // fired on /verify. Repeated on tap so a phone that missed the
-      // first send still gets a retry.
-      sendScanAlertToAll(qr.id)
-        .then((r) =>
-          console.log(
-            `[alert/event] scan-alert result qr_id=${qr.id} ${JSON.stringify(r)}`
-          )
-        )
-        .catch((e) =>
-          console.error('[alert/event] sendScanAlertToAll threw:', e)
-        );
+      // SMS is deliberately NOT re-fired here — /verify already broadcast
+      // it when the alert page loaded. Sending again on tap produced two
+      // identical SMS per scan (~30s apart), which recipients read as
+      // spam and burned 2x DLT credits. Exotel handles transport-level
+      // retries, so an app-level retry here was overkill.
 
       // Fire-and-forget push to the QR owner: "your QR was just scanned".
       // Runs after res.json so a slow FCM call can't stretch the response.
