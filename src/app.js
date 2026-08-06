@@ -127,21 +127,33 @@ app.use((req, res, next) => {
 // api.qr4emergency.com so users end up on the canonical URL (which their
 // browser then caches thanks to the 301).
 //
-// IMPORTANT: only redirects GET/HEAD. POST/PUT/DELETE requests are left
-// alone — otherwise Razorpay webhooks, Exotel callbacks, and older mobile
-// app builds that may still hit the old hostname programmatically would
-// break (most HTTP clients don't follow 301 with a preserved body).
+// SCOPED to browser-visible paths only:
+//   /alert/*  — QR scan alert page (the main use case for this redirect)
+//   /renew    — expiry-countdown "renew via web link" page
+//   /call/*   — receiver-link page shared over SMS
+//
+// Programmatic endpoints (Exotel Passthru, Exotel call-completion, Razorpay
+// webhook, mobile app API traffic, admin API) are DELIBERATELY NOT
+// redirected. Exotel's Passthru applet does not follow HTTP redirects, so
+// a 301 on /exotel/lookup would silently break every call bridge. Older
+// mobile app builds may still hit the old host programmatically — Dart's
+// http package follows redirects by default, but Razorpay/Exotel do not,
+// so it's simplest to leave all API/callback paths untouched.
 //
 // This does NOT help users whose DNS resolver can't reach the old host
 // at all — those users never reach this server. Only fix for them is a
 // replacement sticker or a client-side DNS workaround.
 const LEGACY_HOST = 'qrbackend-production-f691.up.railway.app';
 const CANONICAL_HOST = 'api.qr4emergency.com';
+const REDIRECT_PREFIXES = ['/alert/', '/renew', '/call/'];
 app.use((req, res, next) => {
   const host = String(req.headers.host || '').toLowerCase();
   if (host !== LEGACY_HOST) return next();
   if (req.method !== 'GET' && req.method !== 'HEAD') return next();
-  return res.redirect(301, `https://${CANONICAL_HOST}${req.originalUrl}`);
+  const path = req.originalUrl;
+  const isBrowserPath = REDIRECT_PREFIXES.some((p) => path === p || path.startsWith(p));
+  if (!isBrowserPath) return next();
+  return res.redirect(301, `https://${CANONICAL_HOST}${path}`);
 });
 
 app.get('/health', (req, res) => res.json({ ok: true }));
