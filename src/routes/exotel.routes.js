@@ -9,20 +9,21 @@ const router = Router();
 const SELECTION_TTL_MINUTES = 30;
 const SPAM_NOTIFY_THRESHOLD = 5;
 
-// Two distinct Exophones — different roles, both must be provisioned in
-// the Exotel account:
-//   BRIDGE_NUMBER     — what the BYSTANDER dials from their phone (also
-//                       shown as the tel: fallback on the alert page and
-//                       returned by /alert/:uniqueId/select).
-//   OUTGOING_EXOPHONE — what Exotel uses as the CALLER ID when it
-//                       bridges OUT to the owner/family. This is the
-//                       `outgoing_phone_number` field in the Connect
-//                       applet payload. Kept separate from BRIDGE_NUMBER
-//                       so we can pick a different Exophone for
-//                       outgoing deliverability without touching what
-//                       bystanders dial.
+// BRIDGE_NUMBER — what the BYSTANDER dials from their phone. Also shown
+// as the tel: fallback on the alert page and returned by
+// /alert/:uniqueId/select.
+//
+// We used to also pass an `outgoing_phone_number` (a second Exophone) in
+// the connect_url response to set a distinct caller ID on the outbound
+// leg. Exotel Support (Tanay Puntambekar, Aug 2026) confirmed that field
+// creates a THIRD call leg — Exotel re-queries the operator for that
+// number before dialling the agent, which introduced a CLI header
+// mismatch at the operator and caused calls to silently fail to connect.
+// Standard inbound is only 2 legs: bystander → Exotel virtual number →
+// agent. Removing the field restores the 2-leg flow. If you're tempted
+// to re-add it for "outgoing branding," please re-open Exotel ticket
+// first — this specific removal was their diagnosed fix.
 const BRIDGE_NUMBER = '02048563508';
-const OUTGOING_EXOPHONE = '07948503110';
 const MAX_RINGING_DURATION_SEC = 45;
 const MAX_CONVERSATION_DURATION_SEC = 120;
 const RECORD_CALLS = true;
@@ -40,7 +41,9 @@ function exotelResponse(numbers) {
   return {
     fetch_after_attempt: false,
     destination: { numbers: list },
-    outgoing_phone_number: OUTGOING_EXOPHONE,
+    // outgoing_phone_number intentionally OMITTED — see BRIDGE_NUMBER
+    // comment above. Passing it creates a 3rd call leg that fails at
+    // operator level.
     record: RECORD_CALLS,
     recording_channels: 'dual',
     max_ringing_duration: MAX_RINGING_DURATION_SEC,
