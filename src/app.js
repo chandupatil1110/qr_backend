@@ -13,6 +13,7 @@ import exotelRoutes from './routes/exotel.routes.js';
 import exotelCallbackRoutes from './routes/exotelCallback.routes.js';
 import razorpayWebhookRoutes from './routes/razorpayWebhook.routes.js';
 import adminRoutes from './routes/admin.routes.js';
+import legalRoutes from './routes/legal.routes.js';
 
 const app = express();
 
@@ -145,7 +146,10 @@ app.use((req, res, next) => {
 // replacement sticker or a client-side DNS workaround.
 const LEGACY_HOST = 'qrbackend-production-f691.up.railway.app';
 const CANONICAL_HOST = 'api.qr4emergency.com';
-const REDIRECT_PREFIXES = ['/alert/', '/renew', '/call/', '/delete-account'];
+const REDIRECT_PREFIXES = [
+  '/alert/', '/renew', '/call/', '/delete-account',
+  '/privacy-policy', '/terms', '/refund-policy', '/shipping-policy',
+];
 app.use((req, res, next) => {
   const host = String(req.headers.host || '').toLowerCase();
   if (host !== LEGACY_HOST) return next();
@@ -171,6 +175,11 @@ app.use('/api/exotel', exotelCallbackRoutes);
 // verifies the signature itself.
 app.use('/api/razorpay', razorpayWebhookRoutes);
 app.use('/api/admin', adminRoutes);
+
+// Legal/policy pages served at top level (no /api prefix) so the URLs
+// stay clean for Play Store, Razorpay compliance, and user-facing
+// footer links. Content mirrors mobile/lib/core/legal_content.dart.
+app.use(legalRoutes);
 
 
 import path from 'path';
