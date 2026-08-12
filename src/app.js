@@ -145,7 +145,7 @@ app.use((req, res, next) => {
 // replacement sticker or a client-side DNS workaround.
 const LEGACY_HOST = 'qrbackend-production-f691.up.railway.app';
 const CANONICAL_HOST = 'api.qr4emergency.com';
-const REDIRECT_PREFIXES = ['/alert/', '/renew', '/call/'];
+const REDIRECT_PREFIXES = ['/alert/', '/renew', '/call/', '/delete-account'];
 app.use((req, res, next) => {
   const host = String(req.headers.host || '').toLowerCase();
   if (host !== LEGACY_HOST) return next();
@@ -184,6 +184,57 @@ app.use('/alert', authAlertLimiter, alertRoutes);
 // Admin single-page UI — the /api/admin/* routes are the actual backend.
 app.get('/admin', (req, res) => {
   res.sendFile(path.join(__dirname, 'public/admin.html'));
+});
+
+// Play Store policy (2024+) requires a publicly-accessible URL where a
+// user can request account and data deletion. Google's automated crawler
+// checks this URL is reachable; a 404 or auth-gated page will block the
+// store listing. The page is fully static; the accompanying POST endpoint
+// records submissions for the support team to action manually within the
+// 30-day SLA promised on the page.
+app.get('/delete-account', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public/delete-account.html'));
+});
+
+app.post('/delete-account/request', express.json(), async (req, res) => {
+  const mobile = String(req.body?.mobile || '').replace(/\D/g, '').slice(-10);
+  const email = String(req.body?.email || '').trim().slice(0, 200);
+  const reason = String(req.body?.reason || '').trim().slice(0, 1000);
+  if (!/^\d{10}$/.test(mobile)) {
+    return res.status(400).json({ error: 'Enter a valid 10-digit mobile number' });
+  }
+  try {
+    // Log to console at minimum so a request never gets silently lost
+    // even if the DB write fails (e.g., missing table on a fresh deploy).
+    console.log('[delete-account] request', { mobile, email, reason });
+    // Best-effort DB persist — swallow errors so a missing table on a
+    // brand-new deploy doesn't 500 to the user. The console log above
+    // is the durable record.
+    try {
+      // eslint-disable-next-line import/no-unresolved
+      const { pool } = await import('./db/pool.js');
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS deletion_requests (
+          id         SERIAL PRIMARY KEY,
+          mobile     VARCHAR(20) NOT NULL,
+          email      VARCHAR(200),
+          reason     TEXT,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          processed  BOOLEAN NOT NULL DEFAULT FALSE
+        );
+      `);
+      await pool.query(
+        `INSERT INTO deletion_requests (mobile, email, reason) VALUES ($1, $2, $3)`,
+        [mobile, email || null, reason || null]
+      );
+    } catch (dbErr) {
+      console.warn('[delete-account] DB persist failed (logged only):', dbErr.message);
+    }
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error('[delete-account] request failed:', err);
+    return res.status(500).json({ error: 'Could not submit request' });
+  }
 });
 
 // Browser fallback for the expiry-countdown SMS "Renew via {web_link}" link.
