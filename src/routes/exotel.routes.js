@@ -3,6 +3,7 @@ import { pool } from '../db/pool.js';
 import { normalizeIndianMobile } from '../utils/phone.js';
 import { notifyUser } from '../services/push.service.js';
 import { maskMobile } from '../utils/mask.js';
+import { config } from '../config/index.js';
 
 const router = Router();
 
@@ -23,7 +24,11 @@ const SPAM_NOTIFY_THRESHOLD = 5;
 // agent. Removing the field restores the 2-leg flow. If you're tempted
 // to re-add it for "outgoing branding," please re-open Exotel ticket
 // first — this specific removal was their diagnosed fix.
-const BRIDGE_NUMBER = '02048563508';
+// Bridge number is env-driven now (see config.exotel.bridgeNumber). Kept
+// as a local const at module-load time so hot swapping requires a
+// deploy — safer than reading config on every request (which could hit
+// a partially-updated env during rolling restarts).
+const BRIDGE_NUMBER = config.exotel.bridgeNumber;
 const MAX_RINGING_DURATION_SEC = 45;
 const MAX_CONVERSATION_DURATION_SEC = 120;
 const RECORD_CALLS = true;

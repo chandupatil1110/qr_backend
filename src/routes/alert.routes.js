@@ -16,6 +16,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import path from 'path';
+import { config } from '../config/index.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const router = Router();
 function loadAlertPageHtml() {
@@ -55,20 +56,12 @@ router.post(
 
     const family = await getFamilyByQrId(qr.id);
 
-    // SMS broadcast on every scan — owner + every emergency contact
-    // (up to 5 recipients total). Fire-and-forget so the alert page
-    // renders instantly even if the SMS provider is slow. Product
-    // requirement: SMS goes out on scan regardless of which button
-    // (if any) the bystander taps.
-    sendScanAlertToAll(qr.id)
-      .then((r) =>
-        console.log(
-          `[alert/verify] scan-alert result qr_id=${qr.id} ${JSON.stringify(r)}`
-        )
-      )
-      .catch((e) =>
-        console.error('[alert/verify] sendScanAlertToAll threw:', e)
-      );
+    // SMS is intentionally NOT fired here (page load). Real-world users
+    // reported the alert page silently reloading in Chrome (background
+    // tab restore, pull-to-refresh) which was re-firing scan-alert SMS
+    // to owner+family every time — nuisance messages without any
+    // intent-to-help signal. SMS is now triggered from /event when the
+    // bystander actually taps a Call button — see that endpoint below.
 
     return res.json({
       verified: true,
@@ -137,7 +130,7 @@ router.post(
       return res.json({
         ok: true,
         digits: qr.digits,
-        bridge_number: '02048563508',
+        bridge_number: config.exotel.bridgeNumber,
         ttl_minutes: 30,
       });
     } catch (err) {
@@ -206,11 +199,25 @@ router.post(
         ]
       );
 
-      // SMS is deliberately NOT re-fired here — /verify already broadcast
-      // it when the alert page loaded. Sending again on tap produced two
-      // identical SMS per scan (~30s apart), which recipients read as
-      // spam and burned 2x DLT credits. Exotel handles transport-level
-      // retries, so an app-level retry here was overkill.
+      // SMS broadcast to owner + every emergency contact — fired only
+      // now (call button tap) rather than on page load, because Chrome
+      // tab restores / pull-to-refresh were re-triggering /verify and
+      // spamming SMS with no actual intent-to-help behind them. Firing
+      // on /event means the bystander has demonstrably tapped a Call
+      // button (owner OR family — this endpoint receives both cases
+      // via contact_kind), so an SMS is warranted.
+      //
+      // Fire-and-forget so the response returns instantly and the
+      // dialer opens on the bystander's phone without waiting on SMS.
+      sendScanAlertToAll(qr.id)
+        .then((r) =>
+          console.log(
+            `[alert/event] scan-alert result qr_id=${qr.id} kind=${contact_kind} ${JSON.stringify(r)}`
+          )
+        )
+        .catch((e) =>
+          console.error('[alert/event] sendScanAlertToAll threw:', e)
+        );
 
       // Fire-and-forget push to the QR owner: "your QR was just scanned".
       // Runs after res.json so a slow FCM call can't stretch the response.
@@ -368,7 +375,9 @@ router.post('/:uniqueId/manual_activate',
 );
 
 router.get('/:uniqueId', (req, res) => {
-  const html = loadAlertPageHtml().replaceAll('__UNIQUE_ID__', req.params.uniqueId);
+  const html = loadAlertPageHtml()
+    .replaceAll('__UNIQUE_ID__', req.params.uniqueId)
+    .replaceAll('__BRIDGE_NUMBER__', config.exotel.bridgeNumber);
   res.type('html').send(html);
 });
 

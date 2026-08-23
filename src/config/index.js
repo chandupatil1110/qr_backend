@@ -122,6 +122,12 @@ export const config = {
       sender: stripWs(process.env.EXOTEL_SENDER) || 'CPNETW',
       entityId: stripWs(process.env.EXOTEL_DLT_ENTITY_ID),
       subdomain: stripWs(process.env.EXOTEL_SUBDOMAIN) || 'api.in.exotel.com',
+      // Exotel virtual number the bystander dials from the alert page.
+      // Kept env-driven so we can rotate to a new Exophone (e.g., when
+      // an operator blocks the old one) via Railway Variables → redeploy
+      // — no code push required. Default matches the current
+      // provisioned Exophone.
+      bridgeNumber: stripWs(process.env.EXOTEL_BRIDGE_NUMBER) || '07948503110',
     };
   })(),
 };
