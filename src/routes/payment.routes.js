@@ -9,9 +9,9 @@ import { recordOrderCreated, getPaymentStatus, trackClientEvent } from '../servi
 const router = Router();
 
 // Internal test mobiles — Razorpay charges these accounts ₹1 for QR
-// create instead of ₹549 so the founder can validate the live gateway
+// create instead of ₹599 so the founder can validate the live gateway
 // end-to-end without burning real money on every retry. The UI still
-// shows ₹549 (we override only the actual charge, not the displayed
+// shows ₹599 (we override only the actual charge, not the displayed
 // price). Numbers are compared against the LAST 10 DIGITS of the
 // user's registered mobile, so both `9876543210` and `+919876543210`
 // forms match. Keep this list SHORT.
@@ -50,9 +50,9 @@ router.post('/razorpay/order', requireAuth, async (req, res) => {
 
     // Whitelist check — look up the current user's mobile and, if it's
     // one of the internal test numbers, drop the actual Razorpay charge
-    // to ₹1 while keeping the UI amount at ₹549 (intended). Only the
+    // to ₹1 while keeping the UI amount at ₹599 (intended). Only the
     // charge (`chargePaise`) differs; everything downstream — invoice,
-    // audit row's `intendedAmountPaise` — records the real ₹549 price.
+    // audit row's `intendedAmountPaise` — records the real ₹599 price.
     let chargePaise = intended;
     try {
       const userRow = await pool.query(

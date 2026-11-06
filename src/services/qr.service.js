@@ -142,13 +142,17 @@ export async function createQrRecord({
     }
   }
 
-  if (!family || !Array.isArray(family) || family.length < 1 || family.length > 4) {
-    const err = new Error('Family must include 1 to 4 contacts');
+  // Family contacts are optional now — zero rows is fine. We still cap
+  // the upper bound so a client can't stuff hundreds of rows in one call,
+  // and we still run per-row validation on anything that IS present.
+  const familyList = Array.isArray(family) ? family : [];
+  if (familyList.length > 3) {
+    const err = new Error('Family can include at most 3 contacts');
     err.statusCode = 400;
     throw err;
   }
 
-  for (const f of family) {
+  for (const f of familyList) {
     if (!f.name || !f.phone || !validateFamilyRelation(f.relation)) {
       const err = new Error('Each family member needs a name and phone');
       err.statusCode = 400;
@@ -231,7 +235,7 @@ export async function createQrRecord({
       [userId, name.trim(), email.trim()]
     );
 
-    for (const f of family) {
+    for (const f of familyList) {
       await client.query(
         `INSERT INTO family_details (qr_id, name, phone, relation) VALUES ($1, $2, $3, $4)`,
         [qr.id, f.name.trim(), String(f.phone).replace(/\s/g, ''), (f.relation || '').toString().trim()]
@@ -378,12 +382,16 @@ export async function getFamilyForUserQr(userId, qrId) {
 export async function replaceFamilyForUserQr(userId, qrId, family) {
   await assertQrOwnedByUser(qrId, userId);
 
-  if (!Array.isArray(family) || family.length < 1 || family.length > 4) {
-    const err = new Error('Family must include 1 to 4 contacts');
+  // Zero contacts is valid — the user can clear their entire contact
+  // list this way. Upper bound still enforced; per-row shape still
+  // enforced on anything present.
+  const familyList = Array.isArray(family) ? family : [];
+  if (familyList.length > 3) {
+    const err = new Error('Family can include at most 3 contacts');
     err.statusCode = 400;
     throw err;
   }
-  for (const f of family) {
+  for (const f of familyList) {
     if (!f.name || !f.phone || !validateFamilyRelation(f.relation)) {
       const err = new Error('Each family member needs a name and phone');
       err.statusCode = 400;
@@ -395,7 +403,7 @@ export async function replaceFamilyForUserQr(userId, qrId, family) {
   try {
     await client.query('BEGIN');
     await client.query(`DELETE FROM family_details WHERE qr_id = $1`, [qrId]);
-    for (const f of family) {
+    for (const f of familyList) {
       await client.query(
         `INSERT INTO family_details (qr_id, name, phone, relation) VALUES ($1, $2, $3, $4)`,
         [qrId, f.name.trim(), String(f.phone).replace(/\s/g, ''), (f.relation || '').toString().trim()]

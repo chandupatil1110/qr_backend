@@ -24,7 +24,7 @@ const router = Router();
 
 // ─── Brand / contact constants ─────────────────────────────────────────
 // Keep in sync with LegalContent in mobile/lib/core/legal_content.dart.
-const COMPANY = 'CP Network Private Limited';
+const COMPANY = 'CP Infotech & CP Network Pvt. Ltd.';
 const OFFICE = '401, Antriksh Building, Makhwana Road, Marol Andheri East, Mumbai, Maharashtra 400069';
 const SUPPORT_EMAIL = 'support@qr4emergency.com';
 const GRIEVANCE_EMAIL = 'grievance@cpnetwork.in';
@@ -324,7 +324,7 @@ const TERMS = {
     {
       heading: '4. Payment',
       body:
-        '• One-time payment of ₹549 per QR sticker (inclusive of applicable taxes and shipping charges).\n' +
+        '• One-time payment of ₹599 per QR sticker (inclusive of applicable taxes and shipping charges).\n' +
         '• The payment covers the physical sticker, its lifetime activation, and associated services for the life of the QR.\n' +
         '• Each additional QR requires a separate one-time payment.\n' +
         '• All payments are processed through Razorpay. We do not store your card or banking details.',
@@ -472,7 +472,7 @@ const SHIPPING = {
     {
       heading: '4. Shipping Charges',
       body:
-        'Shipping is included in the one-time purchase price of ₹549. No additional shipping charges are levied at checkout.',
+        'Shipping is included in the one-time purchase price of ₹599. No additional shipping charges are levied at checkout.',
     },
     {
       heading: '5. Tracking',

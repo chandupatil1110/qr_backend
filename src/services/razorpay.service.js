@@ -17,15 +17,15 @@ function getClient() {
   return client;
 }
 
-/** One-time subscription amount — ₹549 total in paise.
- *   Breakdown: platform fee ₹499 + shipping ₹50 = ₹549.
+/** One-time subscription amount — ₹599 total in paise.
+ *   Breakdown: platform fee ₹549 + shipping ₹50 = ₹599.
  *  This must equal (config.pricing.platformFeePaise + shippingFeePaise)
  *  and match the marketing copy on the home/subscription card and the
  *  Payment screen — any mismatch causes users to see different prices
  *  during checkout and abandon (real production incident, July 2026).
  *  There is no annual renewal — this is a one-time purchase for the
  *  lifetime of the customer's account. */
-export const DEFAULT_AMOUNT_PAISE = 54900;
+export const DEFAULT_AMOUNT_PAISE = 59900;
 /** Razorpay's own minimum. Sending less returns 400 BAD_REQUEST_ERROR. */
 export const MIN_AMOUNT_PAISE = 100;
 

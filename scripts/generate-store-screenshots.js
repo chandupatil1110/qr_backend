@@ -597,7 +597,7 @@ function screenCreateQr() {
     </text>
     <text x="32" y="504" font-family="Inter, Arial, sans-serif"
           font-size="12" fill="${C.textOnLightDim}">
-      Add up to 4 people bystanders can reach in an emergency.
+      Add up to 3 people bystanders can reach in an emergency.
     </text>
 
     <!-- Contact 1 -->
@@ -982,7 +982,7 @@ function screenAlertPage() {
       </text>
       <text x="${W - 40}" font-size="12" text-anchor="end"
             font-family="Inter, Arial, sans-serif"
-            fill="${C.textOnLightDim}">Owner + 4 contacts</text>
+            fill="${C.textOnLightDim}">Owner + 3 contacts</text>
     </g>
 
     <!-- Contact cards -->

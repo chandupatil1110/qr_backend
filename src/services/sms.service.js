@@ -346,7 +346,7 @@ export async function sendQrSuccess({ mobile, owner_name }) {
 
 // Alert SMS broadcast — fires on every QR scan. Sends the same
 // DLT-approved QR_SCAN_ALERT template to the owner AND every emergency
-// contact (owner + up to 4 family = 5 recipients max). Fire-and-forget:
+// contact (owner + up to 3 family = 4 recipients max). Fire-and-forget:
 // per-recipient failures never throw. Callers hit this on scan and on
 // tap, so a phone that missed the first send still gets a retry.
 //

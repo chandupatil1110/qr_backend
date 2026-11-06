@@ -9,161 +9,290 @@
     body {
       font-family: 'Inter', system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
       margin: 0;
-      background: #0A0F1D; /* Premium deep navy background */
-      color: #F8FAFC; /* Off-white text */
+      background: #F6F7FB;
+      color: #0B0F1C;
       min-height: 100vh;
       padding: 16px;
       display: flex;
-      align-items: center;
+      align-items: flex-start;
       justify-content: center;
     }
     .card {
       max-width: 420px;
       width: 100%;
       margin: 24px auto;
-      background: #161F33; /* Deep navy card surface */
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      border-radius: 20px;
-      padding: 28px;
-      box-shadow: 0 12px 40px rgba(0,0,0,0.4);
+      background: transparent;
+      padding: 0;
     }
-    h1 { font-size: 1.4rem; margin: 0 0 8px; color: #FF7A00; font-weight: 800; } /* Bronze/Orange Accent */
-    h2 { font-size: 1.15rem; margin: 0 0 12px; color: #F8FAFC; font-weight: 700; }
-    p.sub { margin: 0 0 20px; color: #94A3B8; font-size: 0.9rem; line-height: 1.4; }
-    /* Field labels — bolder + brighter + slightly bigger than the muted
-       default, matching the Flutter form's _fieldLabelStyle. Left-aligned
-       above their inputs (users scan vertically). */
-    label { display: block; font-weight: 700; margin-bottom: 8px; font-size: 0.95rem; margin-top: 14px; color: #F8FAFC; }
+    #step-register.card { max-width: 520px; }
+    #step-link-qr.card,
+    #step-expired.card,
+    #step-verify.card,
+    #step-result.card,
+    #step-success.card,
+    #step-loading.card {
+      background: #FFFFFF;
+      border: 1px solid rgba(0, 0, 0, 0.06);
+      border-radius: 20px;
+      padding: 24px;
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.06);
+    }
+    h1 {
+      font-size: 1.5rem;
+      margin: 0 0 8px;
+      color: #0B0F1C;
+      font-weight: 900;
+      letter-spacing: -0.4px;
+    }
+    h2 {
+      font-size: 1.15rem;
+      margin: 0 0 12px;
+      color: #0B0F1C;
+      font-weight: 800;
+    }
+    p.sub {
+      margin: 0 0 20px;
+      color: #4B5563;
+      font-size: 0.95rem;
+      line-height: 1.5;
+    }
+
+    /* ── Form inputs & labels (default, used on non-register steps) ── */
+    label {
+      display: block;
+      font-weight: 700;
+      margin-bottom: 8px;
+      font-size: 0.95rem;
+      margin-top: 14px;
+      color: #0B0F1C;
+    }
     input, select {
       width: 100%;
-      padding: 12px 14px;
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      background: #1E293B; /* Charcoal-slate input */
-      color: #F8FAFC;
-      border-radius: 12px;
+      padding: 14px 16px;
+      border: 1px solid transparent;
+      background: #F1F2F7;
+      color: #0B0F1C;
+      border-radius: 14px;
       font-size: 1.0rem;
       margin-bottom: 4px;
       transition: all 0.2s;
+      font-family: inherit;
     }
+    input::placeholder { color: #9CA3AF; }
     input:focus, select:focus {
       outline: none;
-      border-color: #FF7A00;
-      box-shadow: 0 0 0 2px rgba(255, 122, 0, 0.2);
+      border-color: #E51E25;
+      box-shadow: 0 0 0 3px rgba(229, 30, 37, 0.14);
     }
-    input:disabled { background: #0F172A; color: #64748B; }
+    input:disabled {
+      background: #E9EBF2;
+      color: #6B7280;
+      cursor: not-allowed;
+    }
+
+    /* ── Primary action button ── */
     button {
       width: 100%;
-      padding: 14px;
-      background: #FF7A00; /* Bronze/Orange */
+      padding: 16px;
+      background: linear-gradient(135deg, #F26066 0%, #E51E25 55%, #B71218 100%);
       color: #fff;
       border: none;
-      border-radius: 12px;
-      font-weight: 700;
-      font-size: 1rem;
+      border-radius: 14px;
+      font-weight: 800;
+      font-size: 1.05rem;
       cursor: pointer;
       margin-top: 20px;
       transition: all 0.2s;
+      letter-spacing: 0.2px;
+      box-shadow: 0 10px 24px -8px rgba(229, 30, 37, 0.45);
+      font-family: inherit;
     }
-    button:hover { background: #E56B1A; }
-    button:disabled { opacity: 0.6; cursor: not-allowed; }
-    .err { color: #F87171; font-size: 0.85rem; margin-top: 2px; }
-    .owner { margin: 20px 0; padding: 16px; background: #1E293B; border-radius: 14px; border: 1px solid rgba(255, 255, 255, 0.05); }
+    button:hover { filter: brightness(1.05); }
+    button:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+      box-shadow: none;
+    }
+
+    .err {
+      color: #DC2626;
+      font-size: 0.9rem;
+      margin-top: 2px;
+      background: #FEF2F2;
+      border: 1px solid rgba(220, 38, 38, 0.25);
+      padding: 10px 12px;
+      border-radius: 10px;
+    }
+    .owner {
+      margin: 20px 0;
+      padding: 16px;
+      background: #F1F2F7;
+      border-radius: 14px;
+      border: 1px solid rgba(0, 0, 0, 0.05);
+    }
     .row {
       display: flex;
       align-items: center;
       justify-content: space-between;
       padding: 12px 0;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      border-bottom: 1px solid rgba(0, 0, 0, 0.06);
     }
     .row:last-child { border-bottom: none; }
     .call {
       padding: 8px 16px;
       background: transparent;
-      border: 2px solid #FF7A00;
-      color: #FF7A00;
+      border: 2px solid #E51E25;
+      color: #E51E25;
       border-radius: 10px;
-      font-weight: 600;
+      font-weight: 700;
       cursor: pointer;
       width: auto;
       margin-top: 0;
-      transition: all 0.2s;
+      box-shadow: none;
     }
-    .call:hover { background: #FF7A00; color: #fff; }
+    .call:hover { background: #E51E25; color: #fff; }
     .hidden { display: none !important; }
     .mb { margin-bottom: 12px; }
     .text-center { text-align: center; }
-    hr { border: none; border-top: 1px solid rgba(255, 255, 255, 0.08); margin: 24px 0; }
+    hr { border: none; border-top: 1px solid rgba(0, 0, 0, 0.08); margin: 24px 0; }
 
-    /* Sub-section card used inside step-register — mirrors the EaCard
-       layout the Flutter /qr/create form uses (Personal, Shipping,
-       Family). Sits inside the main card, so background is a slightly
-       lighter shade for depth. */
-    .section-card {
-      background: #1E293B;
-      border: 1px solid rgba(255, 255, 255, 0.06);
-      border-radius: 14px;
-      padding: 16px 16px 4px;
-      margin-bottom: 16px;
+    /* ═══════════════════════════════════════════════════════════════
+       FORM SECTIONS — the new mobile-form look
+       Red section banner (rounded red tablet with icon + divider + title)
+       sits above a white content card. Mirrors the Flutter form.
+       ═══════════════════════════════════════════════════════════════ */
+    .form-banner {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 16px 18px;
+      background: linear-gradient(135deg, #B71218 0%, #8A0A10 100%);
+      border-radius: 18px;
+      box-shadow: 0 8px 18px -4px rgba(229, 30, 37, 0.3);
+      margin-bottom: 14px;
+      margin-top: 20px;
     }
-    /* Section headers — bigger + centered, matches _cardHeaderStyle in
-       the Flutter Create-QR form. */
-    .section-title {
-      font-size: 1.25rem;
+    .form-banner:first-of-type { margin-top: 0; }
+    .form-banner .banner-icon {
+      width: 28px; height: 28px;
+      color: #FFFFFF;
+      flex-shrink: 0;
+    }
+    .form-banner .banner-divider {
+      width: 1.5px;
+      height: 26px;
+      background: rgba(255, 255, 255, 0.5);
+    }
+    .form-banner h2 {
+      color: #fff;
+      font-size: 1.2rem;
+      font-weight: 900;
+      margin: 0;
+      letter-spacing: -0.2px;
+    }
+
+    /* White content card hosting the form fields. */
+    .form-card {
+      background: #FFFFFF;
+      border: 1px solid rgba(0, 0, 0, 0.06);
+      border-radius: 18px;
+      padding: 18px 18px 20px;
+      box-shadow: 0 10px 24px -6px rgba(0, 0, 0, 0.05);
+      margin-bottom: 20px;
+    }
+
+    /* Field wrapper — icon + label row, then input below. */
+    .form-field {
+      margin-top: 18px;
+    }
+    .form-field:first-child { margin-top: 0; }
+    .form-field label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 1rem;
       font-weight: 800;
-      color: #F8FAFC;
-      margin: 0 0 10px;
-      text-align: center;
-      letter-spacing: -0.3px;
+      color: #0B0F1C;
+      margin: 0 0 10px 0;
+      letter-spacing: -0.1px;
     }
-    /* Blood-group values are 2–3 chars; a full-width dropdown looked
-       oversized. Cap it so the trigger + native popup width stay tidy.
-       Matches the Flutter form's Align + SizedBox(width: 220) treatment. */
+    .form-field .field-icon {
+      width: 22px; height: 22px;
+      color: #0B0F1C;
+      flex-shrink: 0;
+    }
+    .form-field input,
+    .form-field select {
+      margin-bottom: 0;
+    }
+
+    /* Blood-group values are 2–3 chars; cap the dropdown width. */
     #reg-blood { max-width: 220px; }
-    .section-sub {
-      font-size: 0.8rem;
-      color: #94A3B8;
-      margin: 0 0 10px;
-      line-height: 1.4;
-    }
-    .field-hint {
-      font-size: 0.75rem;
-      color: #64748B;
-      margin: 2px 0 0;
-      line-height: 1.3;
-    }
-    .row-2 { display: flex; gap: 12px; }
-    .row-2 > * { flex: 1; min-width: 0; }
-    .family-contact-group {
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      border-radius: 12px;
-      padding: 12px;
-      margin-bottom: 12px;
-      position: relative;
-    }
-    /* Contact N sub-header — centered + bold, matches the Flutter
-       Create-QR form's Contact N heading style. No remove button
-       anymore (all 4 rows are always shown), so the flex layout is
-       unnecessary — plain centered text is enough. */
-    .contact-heading {
-      font-size: 1.1rem;
-      font-weight: 800;
-      color: #F8FAFC;
-      margin-bottom: 8px;
-      text-align: center;
-    }
+
     .pincode-wrap { position: relative; }
     .pincode-spinner {
       position: absolute;
-      right: 14px;
-      top: 14px;
+      right: 16px;
+      top: 18px;
       width: 16px;
       height: 16px;
-      border: 2px solid rgba(255, 122, 0, 0.25);
-      border-top-color: #FF7A00;
+      border: 2px solid rgba(229, 30, 37, 0.25);
+      border-top-color: #E51E25;
       border-radius: 50%;
       animation: spin 0.8s linear infinite;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Contact card — each row is its own white tile with a number badge. */
+    .family-contact-group {
+      background: #FFFFFF;
+      border: 1px solid rgba(0, 0, 0, 0.06);
+      border-radius: 18px;
+      padding: 18px 18px 20px;
+      box-shadow: 0 10px 24px -6px rgba(0, 0, 0, 0.05);
+      margin-bottom: 14px;
+      position: relative;
+    }
+    .contact-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    .contact-number {
+      width: 36px; height: 36px;
+      border-radius: 50%;
+      background: rgba(229, 30, 37, 0.15);
+      color: #E51E25;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 900;
+      font-size: 1rem;
+    }
+    .contact-optional-chip {
+      background: #F1F2F7;
+      color: #4B5563;
+      font-size: 0.65rem;
+      font-weight: 900;
+      letter-spacing: 1px;
+      padding: 4px 10px;
+      border-radius: 999px;
+    }
+
+    /* Keep legacy class name for backwards compatibility with the JS. */
+    .contact-heading { display: none; }
+    .section-card { background: transparent; border: none; padding: 0; margin: 0; }
+    .section-title { display: none; }
+    .section-sub { display: none; }
+    .field-hint {
+      font-size: 0.8rem;
+      color: #6B7280;
+      margin: 6px 0 0;
+      line-height: 1.4;
+    }
+    .row-2 { display: flex; gap: 12px; }
+    .row-2 > * { flex: 1; min-width: 0; }
   </style>
 </head>
 <body>
@@ -225,156 +354,217 @@
     <p class="sub">This QR code is unregistered. Please enter your mobile number to begin.</p>
     <div class="err hidden" id="link-err"></div>
     <label for="link-mobile">Mobile Number</label>
-    <input id="link-mobile" placeholder="10-digit mobile" inputmode="numeric" />
+    <input id="link-mobile" inputmode="numeric" />
     <button type="button" id="btn-link-continue">Continue</button>
   </div>
 
-  <div class="card hidden" id="step-register" style="max-width: 520px;">
+  <div class="card hidden" id="step-register">
     <h1>Create Emergency QR</h1>
     <p class="sub">Fill in your details to activate this sticker.</p>
     <div class="err hidden" id="reg-form-err"></div>
 
     <!-- ── Personal Information ─────────────────────────────── -->
-    <div class="section-card">
-      <p class="section-title">Personal Information</p>
-
-      <label>Full Name *</label>
-      <input id="reg-name" placeholder="Enter your full name" />
-
-      <label>Mobile Number *</label>
-      <input id="reg-mobile" placeholder="10-digit mobile number" disabled />
-
-      <label>Email *</label>
-      <input id="reg-email" placeholder="you@example.com" type="email" />
-
-      <label>Vehicle Number *</label>
-      <input id="reg-vehicle" placeholder="MH31CR0289"
-             style="text-transform: uppercase;" />
-
-      <label>Blood Group *</label>
-      <select id="reg-blood">
-        <option value="">Select blood group</option>
-        <option>A+</option><option>A-</option>
-        <option>B+</option><option>B-</option>
-        <option>O+</option><option>O-</option>
-        <option>AB+</option><option>AB-</option>
-      </select>
-
-      <label>Referral Code *</label>
-      <input id="reg-referral" placeholder="Enter referral code from sticker" />
+    <div class="form-banner">
+      <svg class="banner-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+      <div class="banner-divider"></div>
+      <h2>Personal Information</h2>
+    </div>
+    <div class="form-card">
+      <div class="form-field">
+        <label>
+          <svg class="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-6 8-6s8 2 8 6"/></svg>
+          Full Name
+        </label>
+        <input id="reg-name" placeholder="Enter your full name" />
+      </div>
+      <div class="form-field">
+        <label>
+          <svg class="field-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M20 15.5c-1.25 0-2.45-.2-3.57-.57-.35-.11-.74-.03-1.02.24l-2.2 2.2c-2.83-1.44-5.15-3.75-6.59-6.59l2.2-2.21c.28-.26.36-.65.25-1C8.7 6.45 8.5 5.25 8.5 4c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1 0 9.39 7.61 17 17 17 .55 0 1-.45 1-1v-3.5c0-.55-.45-1-1-1z"/></svg>
+          Mobile Number
+        </label>
+        <input id="reg-mobile" disabled />
+      </div>
+      <div class="form-field">
+        <label>
+          <svg class="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>
+          Email
+        </label>
+        <input id="reg-email" type="email" placeholder="you@example.com" />
+      </div>
+      <div class="form-field">
+        <label>
+          <svg class="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 11l1.5-4.5h11L19 11"/><rect x="3" y="11" width="18" height="6" rx="1"/><circle cx="7" cy="17" r="1.5"/><circle cx="17" cy="17" r="1.5"/></svg>
+          Vehicle Number
+        </label>
+        <input id="reg-vehicle" placeholder="MH12AB1234" style="text-transform: uppercase;" />
+      </div>
+      <div class="form-field">
+        <label>
+          <svg class="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2s-5.33 7.17-5.33 11.17c0 2.94 2.39 5.33 5.33 5.33s5.33-2.39 5.33-5.33C17.33 9.17 12 2 12 2z"/></svg>
+          Blood Group
+        </label>
+        <select id="reg-blood">
+          <option value="">Select blood group</option>
+          <option>A+</option><option>A-</option>
+          <option>B+</option><option>B-</option>
+          <option>O+</option><option>O-</option>
+          <option>AB+</option><option>AB-</option>
+        </select>
+      </div>
+      <div class="form-field">
+        <label>
+          <svg class="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15 8.5 22 9.3 17 14 18.3 21 12 17.8 5.7 21 7 14 2 9.3 9 8.5 12 2"/></svg>
+          Referral Code
+        </label>
+        <input id="reg-referral" placeholder="Enter referral code from sticker" />
+      </div>
     </div>
 
     <!-- ── Address ─────────────────────────────────────────── -->
-    <div class="section-card">
-      <p class="section-title">Address</p>
-
-      <label>Address Line 1 *</label>
-      <input id="reg-addr1" placeholder="House/Flat number, Building, Street" />
-
-      <label>Address Line 2</label>
-      <input id="reg-addr2" placeholder="Landmark, Area (optional)" />
-
-      <label>Pincode *</label>
-      <div class="pincode-wrap">
-        <input id="reg-pincode" placeholder="6-digit postal code"
-               inputmode="numeric" maxlength="6" />
-        <div id="reg-pincode-spinner" class="pincode-spinner hidden"></div>
+    <div class="form-banner">
+      <svg class="banner-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C8.14 2 5 5.14 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.86-3.14-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>
+      <div class="banner-divider"></div>
+      <h2>Address</h2>
+    </div>
+    <div class="form-card">
+      <div class="form-field">
+        <label>
+          <svg class="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12l9-9 9 9"/><path d="M5 10v10h14V10"/></svg>
+          Address
+        </label>
+        <input id="reg-addr1" placeholder="House/Flat, Building, Street" />
       </div>
-
-      <div class="row-2">
-        <div>
-          <label>City *</label>
-          <input id="reg-city" placeholder="e.g., Mumbai" />
+      <div class="form-field">
+        <label>
+          <svg class="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2C8.14 2 5 5.14 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.86-3.14-7-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>
+          Pincode
+        </label>
+        <div class="pincode-wrap">
+          <input id="reg-pincode" placeholder="6-digit postal code" inputmode="numeric" maxlength="6" />
+          <div id="reg-pincode-spinner" class="pincode-spinner hidden"></div>
         </div>
-        <div>
-          <label>State *</label>
-          <select id="reg-state">
-            <option value="">Select state</option>
-            <option>Andaman and Nicobar Islands</option>
-            <option>Andhra Pradesh</option>
-            <option>Arunachal Pradesh</option>
-            <option>Assam</option>
-            <option>Bihar</option>
-            <option>Chandigarh</option>
-            <option>Chhattisgarh</option>
-            <option>Dadra and Nagar Haveli and Daman and Diu</option>
-            <option>Delhi</option>
-            <option>Goa</option>
-            <option>Gujarat</option>
-            <option>Haryana</option>
-            <option>Himachal Pradesh</option>
-            <option>Jammu and Kashmir</option>
-            <option>Jharkhand</option>
-            <option>Karnataka</option>
-            <option>Kerala</option>
-            <option>Ladakh</option>
-            <option>Lakshadweep</option>
-            <option>Madhya Pradesh</option>
-            <option selected>Maharashtra</option>
-            <option>Manipur</option>
-            <option>Meghalaya</option>
-            <option>Mizoram</option>
-            <option>Nagaland</option>
-            <option>Odisha</option>
-            <option>Puducherry</option>
-            <option>Punjab</option>
-            <option>Rajasthan</option>
-            <option>Sikkim</option>
-            <option>Tamil Nadu</option>
-            <option>Telangana</option>
-            <option>Tripura</option>
-            <option>Uttar Pradesh</option>
-            <option>Uttarakhand</option>
-            <option>West Bengal</option>
-          </select>
-        </div>
+      </div>
+      <div class="form-field">
+        <label>
+          <svg class="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21V9l9-6 9 6v12"/><path d="M9 21v-6h6v6"/></svg>
+          City
+        </label>
+        <input id="reg-city" placeholder="Your city" />
+      </div>
+      <div class="form-field">
+        <label>
+          <svg class="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4l-6 2v16l6-2 6 2 6-2V4l-6 2-6-2z"/><path d="M9 4v16"/><path d="M15 6v16"/></svg>
+          State
+        </label>
+        <select id="reg-state">
+          <option value="">Select state</option>
+          <option>Andaman and Nicobar Islands</option>
+          <option>Andhra Pradesh</option>
+          <option>Arunachal Pradesh</option>
+          <option>Assam</option>
+          <option>Bihar</option>
+          <option>Chandigarh</option>
+          <option>Chhattisgarh</option>
+          <option>Dadra and Nagar Haveli and Daman and Diu</option>
+          <option>Delhi</option>
+          <option>Goa</option>
+          <option>Gujarat</option>
+          <option>Haryana</option>
+          <option>Himachal Pradesh</option>
+          <option>Jammu and Kashmir</option>
+          <option>Jharkhand</option>
+          <option>Karnataka</option>
+          <option>Kerala</option>
+          <option>Ladakh</option>
+          <option>Lakshadweep</option>
+          <option>Madhya Pradesh</option>
+          <option selected>Maharashtra</option>
+          <option>Manipur</option>
+          <option>Meghalaya</option>
+          <option>Mizoram</option>
+          <option>Nagaland</option>
+          <option>Odisha</option>
+          <option>Puducherry</option>
+          <option>Punjab</option>
+          <option>Rajasthan</option>
+          <option>Sikkim</option>
+          <option>Tamil Nadu</option>
+          <option>Telangana</option>
+          <option>Tripura</option>
+          <option>Uttar Pradesh</option>
+          <option>Uttarakhand</option>
+          <option>West Bengal</option>
+        </select>
       </div>
     </div>
 
-    <!-- ── Family Emergency Contacts ────────────────────────── -->
-    <!-- Fixed at 4 rows. Contact 1 is required; Contacts 2–4 are
-         optional and silently dropped on submit if left blank. -->
-    <div class="section-card">
-      <p class="section-title">Family Emergency Contacts</p>
-      <p class="section-sub" style="text-align: center;">
-        Contact 1 is required. Contacts 2–4 are optional.
-      </p>
-
-      <div id="family-contacts-container">
-        <div class="family-contact-group">
-          <div class="contact-heading">Contact 1</div>
-          <label>Name *</label>
-          <input class="reg-fam-name" placeholder="Contact name" />
-          <label>Phone Number *</label>
-          <input class="reg-fam-phone" placeholder="10-digit number"
-                 inputmode="numeric" maxlength="10" />
+    <!-- ── Emergency Contacts (all optional) ──────────────── -->
+    <div class="form-banner">
+      <svg class="banner-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
+      <div class="banner-divider"></div>
+      <h2>Emergency Contacts</h2>
+    </div>
+    <div id="family-contacts-container">
+      <div class="family-contact-group">
+        <div class="contact-header">
+          <span class="contact-number">1</span>
+          <span class="contact-optional-chip">OPTIONAL</span>
         </div>
-
-        <div class="family-contact-group">
-          <div class="contact-heading">Contact 2 (optional)</div>
-          <label>Name</label>
-          <input class="reg-fam-name" placeholder="Contact name" />
-          <label>Phone Number</label>
-          <input class="reg-fam-phone" placeholder="10-digit number"
-                 inputmode="numeric" maxlength="10" />
+        <div class="form-field">
+          <label>
+            <svg class="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-6 8-6s8 2 8 6"/></svg>
+            Name
+          </label>
+          <input class="reg-fam-name" placeholder="Enter contact name" />
         </div>
-
-        <div class="family-contact-group">
-          <div class="contact-heading">Contact 3 (optional)</div>
-          <label>Name</label>
-          <input class="reg-fam-name" placeholder="Contact name" />
-          <label>Phone Number</label>
-          <input class="reg-fam-phone" placeholder="10-digit number"
-                 inputmode="numeric" maxlength="10" />
+        <div class="form-field">
+          <label>
+            <svg class="field-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M20 15.5c-1.25 0-2.45-.2-3.57-.57-.35-.11-.74-.03-1.02.24l-2.2 2.2c-2.83-1.44-5.15-3.75-6.59-6.59l2.2-2.21c.28-.26.36-.65.25-1C8.7 6.45 8.5 5.25 8.5 4c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1 0 9.39 7.61 17 17 17 .55 0 1-.45 1-1v-3.5c0-.55-.45-1-1-1z"/></svg>
+            Mobile Number
+          </label>
+          <input class="reg-fam-phone" placeholder="10-digit mobile number" inputmode="numeric" maxlength="10" />
         </div>
+      </div>
 
-        <div class="family-contact-group">
-          <div class="contact-heading">Contact 4 (optional)</div>
-          <label>Name</label>
-          <input class="reg-fam-name" placeholder="Contact name" />
-          <label>Phone Number</label>
-          <input class="reg-fam-phone" placeholder="10-digit number"
-                 inputmode="numeric" maxlength="10" />
+      <div class="family-contact-group">
+        <div class="contact-header">
+          <span class="contact-number">2</span>
+          <span class="contact-optional-chip">OPTIONAL</span>
+        </div>
+        <div class="form-field">
+          <label>
+            <svg class="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-6 8-6s8 2 8 6"/></svg>
+            Name
+          </label>
+          <input class="reg-fam-name" placeholder="Enter contact name" />
+        </div>
+        <div class="form-field">
+          <label>
+            <svg class="field-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M20 15.5c-1.25 0-2.45-.2-3.57-.57-.35-.11-.74-.03-1.02.24l-2.2 2.2c-2.83-1.44-5.15-3.75-6.59-6.59l2.2-2.21c.28-.26.36-.65.25-1C8.7 6.45 8.5 5.25 8.5 4c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1 0 9.39 7.61 17 17 17 .55 0 1-.45 1-1v-3.5c0-.55-.45-1-1-1z"/></svg>
+            Mobile Number
+          </label>
+          <input class="reg-fam-phone" placeholder="10-digit mobile number" inputmode="numeric" maxlength="10" />
+        </div>
+      </div>
+
+      <div class="family-contact-group">
+        <div class="contact-header">
+          <span class="contact-number">3</span>
+          <span class="contact-optional-chip">OPTIONAL</span>
+        </div>
+        <div class="form-field">
+          <label>
+            <svg class="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-6 8-6s8 2 8 6"/></svg>
+            Name
+          </label>
+          <input class="reg-fam-name" placeholder="Enter contact name" />
+        </div>
+        <div class="form-field">
+          <label>
+            <svg class="field-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M20 15.5c-1.25 0-2.45-.2-3.57-.57-.35-.11-.74-.03-1.02.24l-2.2 2.2c-2.83-1.44-5.15-3.75-6.59-6.59l2.2-2.21c.28-.26.36-.65.25-1C8.7 6.45 8.5 5.25 8.5 4c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1 0 9.39 7.61 17 17 17 .55 0 1-.45 1-1v-3.5c0-.55-.45-1-1-1z"/></svg>
+            Mobile Number
+          </label>
+          <input class="reg-fam-phone" placeholder="10-digit mobile number" inputmode="numeric" maxlength="10" />
         </div>
       </div>
     </div>
@@ -697,7 +887,6 @@
       const vBlood   = document.getElementById('reg-blood').value.trim();
       const vRef     = document.getElementById('reg-referral').value.trim();
       const vAddr1   = document.getElementById('reg-addr1').value.trim();
-      const vAddr2   = document.getElementById('reg-addr2').value.trim();
       const vPincode = document.getElementById('reg-pincode').value.trim();
       const vCity    = document.getElementById('reg-city').value.trim();
       const vState   = document.getElementById('reg-state').value.trim();
@@ -716,43 +905,37 @@
       if (!vBlood) return showModal("Blood group is required");
       if (!vRef) return showModal("Referral Code is required");
 
-      if (!vAddr1) return showModal("Address Line 1 is required");
+      if (!vAddr1) return showModal("Address is required");
       if (!/^\d{6}$/.test(vPincode)) return showModal("Enter a valid 6-digit pincode");
       if (!vCity) return showModal("City is required");
       if (!vState) return showModal("State is required");
 
-      // Contact 1 mandatory; Contacts 2–4 optional. A row where both
-      // name and phone are blank is silently skipped. A row with just
-      // one field filled fails validation — half a contact is useless.
+      // Every contact row is optional. A row where both name and phone
+      // are blank is silently skipped. A row with just one field filled
+      // still fails validation — half a contact is useless. A submission
+      // with zero contacts is accepted and sent to the backend as an
+      // empty family array.
       const groups = document.querySelectorAll('.family-contact-group');
       const family = [];
       for (let i = 0; i < groups.length; i++) {
         const group = groups[i];
-        const isRequired = i === 0;
         const fn = group.querySelector('.reg-fam-name').value.trim();
         const fp = group.querySelector('.reg-fam-phone').value.trim();
 
-        if (!isRequired && !fn && !fp) continue;
+        if (!fn && !fp) continue;
 
         if (!fn) {
           return showModal(
-            isRequired
-              ? "Contact 1 Name is required"
-              : `Contact ${i + 1}: name is required when phone is filled`
+            `Contact ${i + 1}: name is required when phone is filled`
           );
         }
         if (fp.length !== 10 || !/^\d{10}$/.test(fp)) {
           return showModal(
-            isRequired
-              ? "Please enter a valid 10-digit mobile number for Contact 1"
-              : `Contact ${i + 1}: please enter a valid 10-digit mobile number`
+            `Contact ${i + 1}: please enter a valid 10-digit mobile number`
           );
         }
 
         family.push({ name: fn, phone: fp });
-      }
-      if (family.length === 0) {
-        return showModal("At least 1 Family Contact is required");
       }
 
       const btn = document.getElementById('btn-activate');
@@ -785,7 +968,6 @@
         blood_group: vBlood,
         referralCode: vRef,
         shipping_address_line1: vAddr1,
-        shipping_address_line2: vAddr2 || null,
         shipping_city: vCity,
         shipping_state: vState,
         shipping_pincode: vPincode,

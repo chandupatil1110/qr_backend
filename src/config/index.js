@@ -43,7 +43,7 @@ export const config = {
     // don't need a hunt through templates.
     amount: parseInt(process.env.INVOICE_AMOUNT || '299', 10),
     currency: process.env.INVOICE_CURRENCY || 'INR',
-    company: process.env.INVOICE_COMPANY || 'CP Network Private Limited',
+    company: process.env.INVOICE_COMPANY || 'CP Infotech & CP Network Pvt. Ltd.',
     companyAddress:
       process.env.INVOICE_COMPANY_ADDRESS ||
       'Bhagwan Nagar, Nagpur, Maharashtra 440027, India',
@@ -59,11 +59,11 @@ export const config = {
     amountPaise: parseInt(process.env.RENEWAL_AMOUNT_PAISE || '9900', 10),
   },
   // Line-item breakdown for the invoice email + payment screen. Sum
-  // must equal DEFAULT_AMOUNT_PAISE (₹549). Split from the total so
+  // must equal DEFAULT_AMOUNT_PAISE (₹599). Split from the total so
   // the invoice shows Platform + Shipping as distinct line items —
   // matches how the price is advertised on the marketing page.
   pricing: {
-    platformFeePaise: parseInt(process.env.PLATFORM_FEE_PAISE || '49900', 10),
+    platformFeePaise: parseInt(process.env.PLATFORM_FEE_PAISE || '54900', 10),
     shippingFeePaise: parseInt(process.env.SHIPPING_FEE_PAISE || '5000', 10),
   },
   // Home-page promo video. Point PROMO_VIDEO_URL at any HTTPS MP4 (Supabase
@@ -77,6 +77,11 @@ export const config = {
       'A 60-second walkthrough of QR 4 Emergency.',
     poster: process.env.PROMO_VIDEO_POSTER || '',
   },
+  // Home-screen carousel. CAROUSEL_SLIDES_JSON is a JSON array of
+  // { tag, title, subtitle, imageUrl } objects. If unset or malformed
+  // the /api/app/carousel endpoint falls back to a curated default set
+  // baked into the route handler.
+  carouselSlidesJson: process.env.CAROUSEL_SLIDES_JSON || '',
   // Supabase Storage — backs admin promo-video uploads.
   //   SUPABASE_URL              → https://<project>.supabase.co
   //   SUPABASE_SERVICE_ROLE_KEY → service-role JWT (Settings → API). Never

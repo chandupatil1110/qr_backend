@@ -43,18 +43,149 @@ router.get('/promo-video', async (req, res) => {
   });
 });
 
+// Home-screen carousel. Returns { items: [{tag, title, subtitle, imageUrl}] }.
+// The mobile client fetches on mount, falls back to its own bundled defaults
+// when this endpoint is unreachable, and swaps in the server's response once
+// it arrives. Set CAROUSEL_SLIDES_JSON (a JSON array of slide objects) to
+// override the defaults without an app rebuild.
+const DEFAULT_CAROUSEL_SLIDES = [
+  {
+    tag: 'ACCIDENT EMERGENCY',
+    title: 'In a crash? Your family knows in seconds.',
+    subtitle:
+      'Any bystander can scan your QR and reach your trusted contacts — no number lookups, no delays.',
+    imageUrl:
+      'https://images.unsplash.com/photo-1713623311317-d3c43a4be4cf?w=900&q=80&auto=format&fit=crop',
+  },
+  {
+    tag: 'TRUSTED CONTACTS',
+    title: 'Three trusted contacts. One QR scan.',
+    subtitle:
+      'Instantly connect with your family, friends, or emergency contacts when every second matters.',
+    imageUrl:
+      'https://plus.unsplash.com/premium_photo-1745299853417-b13c4e281c31?w=900&q=80&auto=format&fit=crop',
+  },
+  {
+    tag: 'CALL MASKING',
+    title: 'They call you. Without ever seeing your number.',
+    subtitle:
+      'Every emergency call is bridged through our secure layer — your real phone number stays hidden, on both sides.',
+    imageUrl:
+      'https://plus.unsplash.com/premium_photo-1700592623848-91fc17d2592d?w=900&q=80&auto=format&fit=crop',
+  },
+  {
+    tag: 'WRONG PARKING',
+    title: 'Blocked someone? They reach you privately.',
+    subtitle:
+      'No more notes under wipers. A quick scan triggers a masked call — your number stays private.',
+    imageUrl:
+      'https://images.unsplash.com/photo-1658260867231-535a1f7c98b9?w=900&q=80&auto=format&fit=crop',
+  },
+  {
+    tag: 'SPAM PROTECTION',
+    title: 'See caller location. Block spam in one tap.',
+    subtitle:
+      'View where each scan happened, and block any number that calls you too often — right from the app.',
+    imageUrl:
+      'https://images.unsplash.com/photo-1526628953301-3e589a6a8b74?w=900&q=80&auto=format&fit=crop',
+  },
+  {
+    tag: 'ROAD SAFETY',
+    title: 'Drive easy. Help is one scan away.',
+    subtitle:
+      'Highways, late nights, long trips — you are never truly alone behind the wheel.',
+    imageUrl:
+      'https://images.unsplash.com/photo-1741122433084-002301210c13?w=900&q=80&auto=format&fit=crop',
+  },
+];
+
+function sanitizedCarouselItems(raw) {
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+  const cleaned = raw
+    .slice(0, 10)
+    .filter((s) => s && typeof s === 'object' && s.imageUrl && s.title)
+    .map((s) => ({
+      tag: String(s.tag || ''),
+      title: String(s.title),
+      subtitle: String(s.subtitle || ''),
+      imageUrl: String(s.imageUrl),
+    }));
+  return cleaned.length ? cleaned : null;
+}
+
+router.get('/carousel', (req, res) => {
+  const envRaw = String(config.carouselSlidesJson || '').trim();
+  if (envRaw) {
+    try {
+      const parsed = JSON.parse(envRaw);
+      const items = sanitizedCarouselItems(parsed);
+      if (items) return res.json({ items });
+    } catch (err) {
+      console.warn('[app/carousel] CAROUSEL_SLIDES_JSON parse failed, falling back to defaults:', err.message);
+    }
+  }
+  return res.json({ items: DEFAULT_CAROUSEL_SLIDES });
+});
+
+// Semver-style compare. Returns -1 / 0 / 1 for a<b / a==b / a>b. Treats
+// missing or malformed input as 0.0.0, so unknown clients will trigger
+// the hardest fallback path (forceUpdate true if minSupported is set).
+function compareVersions(a, b) {
+  const pa = String(a || '0').split('.').map((n) => parseInt(n, 10) || 0);
+  const pb = String(b || '0').split('.').map((n) => parseInt(n, 10) || 0);
+  const len = Math.max(pa.length, pb.length);
+  for (let i = 0; i < len; i++) {
+    const na = pa[i] || 0;
+    const nb = pb[i] || 0;
+    if (na < nb) return -1;
+    if (na > nb) return 1;
+  }
+  return 0;
+}
+
+// Version-check: distinguishes a HARD force-update (client older than the
+// minimum we still support) from a SOFT nudge (client older than the
+// latest Play Store build but still within the supported window). The
+// mobile client blocks the UI only when `forceUpdate` is true; otherwise
+// it shows a dismissible banner on Home.
+//
+// Tuning knobs for the next release:
+//   • Bump LATEST_VERSION to the version you're uploading to Play Store.
+//   • Bump MIN_SUPPORTED_VERSION only when you need to cut off older
+//     clients (schema break, security fix, retired API, etc).
 router.get('/version-check', (req, res) => {
-  const currentVersion = req.query.version;
-  const latestVersion = '1.0.5';
-  
-  // Mismatch check (if version query parameter is empty, we default forceUpdate to false)
-  const forceUpdate = currentVersion ? (currentVersion !== latestVersion) : false;
+  const LATEST_VERSION = '1.0.5';
+  const MIN_SUPPORTED_VERSION = '1.0.5';
+  const PLAY_STORE_URL =
+    'https://play.google.com/store/apps/details?id=com.cpnetwork.qr4emergency';
+
+  const clientVersion = String(req.query.version || '').trim();
+  // When the client didn't send a version at all (older build, missed the
+  // query param, non-mobile caller), skip the gate — being wrong here
+  // would lock legitimate users out.
+  const hasClient = clientVersion.length > 0;
+
+  const forceUpdate =
+    hasClient && compareVersions(clientVersion, MIN_SUPPORTED_VERSION) < 0;
+  const updateAvailable =
+    hasClient && compareVersions(clientVersion, LATEST_VERSION) < 0;
+
+  let updateMessage;
+  if (forceUpdate) {
+    updateMessage = 'This version is no longer supported. Please update to continue.';
+  } else if (updateAvailable) {
+    updateMessage = 'A new version is available with the latest features.';
+  } else {
+    updateMessage = 'App is up to date';
+  }
 
   return res.json({
-    latestVersion,
+    latestVersion: LATEST_VERSION,
+    minSupportedVersion: MIN_SUPPORTED_VERSION,
     forceUpdate,
-    updateMessage: forceUpdate ? "Please update app to continue" : "App is up to date",
-    playStoreUrl: "https://play.google.com/store/apps/details?id=com.emergency.alert"
+    updateAvailable,
+    updateMessage,
+    playStoreUrl: PLAY_STORE_URL,
   });
 });
 
