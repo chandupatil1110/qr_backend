@@ -275,7 +275,10 @@ router.post('/:uniqueId/manual_activate',
   body('name').trim().notEmpty(),
   body('vehicle_number').trim().matches(/^([A-Z]{2}[0-9]{2}[A-Z]{1,2}[0-9]{4}|[0-9]{2}BH[0-9]{4}[A-Z]{1,2})$/),
   body('referralCode').trim().notEmpty(),
-  body('family').isArray({ min: 1, max: 4 }),
+  // Family contacts are fully optional on the alert-page manual activation
+  // form as well — mirrors the in-app /qr/create flow. Cap at 3 since the
+  // UI only exposes three slots.
+  body('family').isArray({ min: 0, max: 3 }),
   // Optional profile / shipping fields — the alert-page activation form
   // now collects the same set of fields as the Flutter /qr/create form
   // so the DB row looks identical regardless of activation path (paid

@@ -46,7 +46,12 @@ router.post(
   body('email').isEmail().normalizeEmail({ gmail_remove_dots: false }),
   body('vehicle_number').trim().notEmpty().matches(/^([A-Z]{2}[0-9]{2}[A-Z]{1,2}[0-9]{4}|[0-9]{2}BH[0-9]{4}[A-Z]{1,2})$/).withMessage('Invalid Vehicle Number'),
   body('blood_group').optional().isString().trim(),
-  body('family').isArray({ min: 1, max: 4 }),
+  // Family contacts are fully optional — a QR can be created with zero
+  // contacts. `min: 0` lets the client submit an empty array; the
+  // per-element `family.*.name` / `family.*.phone` rules below only fire
+  // when at least one entry is present. Cap at 3 (we only ever surface
+  // three slots in the UI; 4 was a legacy allowance).
+  body('family').isArray({ min: 0, max: 3 }),
   body('family.*.name').trim().notEmpty(),
   body('family.*.phone').trim().notEmpty(),
   body('family.*.relation').optional({ nullable: true, checkFalsy: true }).custom((v) => validateFamilyRelation(v)),
@@ -111,7 +116,12 @@ router.get('/:id/family', requireAuth, async (req, res) => {
 router.put(
   '/:id/family',
   requireAuth,
-  body('family').isArray({ min: 1, max: 4 }),
+  // Family contacts are fully optional — a QR can be created with zero
+  // contacts. `min: 0` lets the client submit an empty array; the
+  // per-element `family.*.name` / `family.*.phone` rules below only fire
+  // when at least one entry is present. Cap at 3 (we only ever surface
+  // three slots in the UI; 4 was a legacy allowance).
+  body('family').isArray({ min: 0, max: 3 }),
   body('family.*.name').trim().notEmpty(),
   body('family.*.phone').trim().notEmpty(),
   body('family.*.relation').optional({ nullable: true, checkFalsy: true }).custom((v) => validateFamilyRelation(v)),
