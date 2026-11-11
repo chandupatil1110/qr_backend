@@ -293,6 +293,73 @@
     }
     .row-2 { display: flex; gap: 12px; }
     .row-2 > * { flex: 1; min-width: 0; }
+
+    /* ── Declaration checkbox block (required before submit) ──
+       White card with brand-red check state + inline Privacy / T&C links.
+       Blocks activation until ticked — mirrors the mobile form. */
+    .declaration-box {
+      background: #FFFFFF;
+      border: 1px solid rgba(0, 0, 0, 0.08);
+      border-radius: 14px;
+      padding: 14px 16px;
+      margin-top: 4px;
+      margin-bottom: 4px;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .declaration-box.active {
+      border-color: rgba(229, 30, 37, 0.5);
+      box-shadow: 0 0 0 3px rgba(229, 30, 37, 0.08);
+    }
+    .declaration-label {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      cursor: pointer;
+      margin: 0;
+      padding: 0;
+      font-weight: 500;
+      font-size: 0.9rem;
+      line-height: 1.5;
+      color: #0B0F1C;
+    }
+    .declaration-label input[type="checkbox"] {
+      position: absolute;
+      opacity: 0;
+      pointer-events: none;
+    }
+    .declaration-checkmark {
+      width: 22px;
+      height: 22px;
+      border-radius: 7px;
+      border: 1.5px solid #CBD5E1;
+      background: #FFFFFF;
+      flex-shrink: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s;
+      margin-top: 1px;
+    }
+    .declaration-label input:checked + .declaration-checkmark {
+      background: linear-gradient(135deg, #E51E25, #B71218);
+      border-color: #B71218;
+    }
+    .declaration-label input:checked + .declaration-checkmark::after {
+      content: '';
+      width: 6px;
+      height: 11px;
+      border: solid #fff;
+      border-width: 0 2px 2px 0;
+      transform: rotate(45deg);
+      margin-top: -2px;
+    }
+    .declaration-text { flex: 1; color: #0B0F1C; }
+    .declaration-text a {
+      color: #E51E25;
+      font-weight: 700;
+      text-decoration: none;
+    }
+    .declaration-text a:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
@@ -414,9 +481,9 @@
       <div class="form-field">
         <label>
           <svg class="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15 8.5 22 9.3 17 14 18.3 21 12 17.8 5.7 21 7 14 2 9.3 9 8.5 12 2"/></svg>
-          Referral Code
+          Distributor Code
         </label>
-        <input id="reg-referral" placeholder="Enter referral code from sticker" />
+        <input id="reg-referral" placeholder="Enter distributor code from sticker" />
       </div>
     </div>
 
@@ -567,6 +634,20 @@
           <input class="reg-fam-phone" placeholder="10-digit mobile number" inputmode="numeric" maxlength="10" />
         </div>
       </div>
+    </div>
+
+    <!-- Required consent gate — submit stays blocked until ticked. -->
+    <div class="declaration-box" id="declaration-wrap">
+      <label class="declaration-label">
+        <input type="checkbox" id="decl-accept" />
+        <span class="declaration-checkmark" aria-hidden="true"></span>
+        <span class="declaration-text">
+          I confirm the information above is accurate and I agree to the
+          <a href="/privacy-policy" target="_blank" rel="noopener">Privacy Policy</a>
+          and
+          <a href="/terms" target="_blank" rel="noopener">Terms &amp; Conditions</a>.
+        </span>
+      </label>
     </div>
 
     <button type="button" id="btn-activate">Activate QR</button>
@@ -880,6 +961,14 @@
       try { e.target.setSelectionRange(start, start); } catch (_) { /* ignore */ }
     });
 
+    // Light up the declaration card when the checkbox is ticked so the
+    // user sees the red accent border before they tap Activate.
+    document.getElementById('decl-accept').addEventListener('change', (e) => {
+      document
+        .getElementById('declaration-wrap')
+        .classList.toggle('active', e.target.checked);
+    });
+
     document.getElementById('btn-activate').onclick = async () => {
       const vName    = document.getElementById('reg-name').value.trim();
       const vEmail   = document.getElementById('reg-email').value.trim();
@@ -903,12 +992,18 @@
       }
 
       if (!vBlood) return showModal("Blood group is required");
-      if (!vRef) return showModal("Referral Code is required");
+      if (!vRef) return showModal("Distributor Code is required");
 
       if (!vAddr1) return showModal("Address is required");
       if (!/^\d{6}$/.test(vPincode)) return showModal("Enter a valid 6-digit pincode");
       if (!vCity) return showModal("City is required");
       if (!vState) return showModal("State is required");
+
+      if (!document.getElementById('decl-accept').checked) {
+        return showModal(
+          "Please accept the Privacy Policy and Terms & Conditions to continue"
+        );
+      }
 
       // Every contact row is optional. A row where both name and phone
       // are blank is silently skipped. A row with just one field filled

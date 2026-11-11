@@ -14,14 +14,18 @@ const router = Router();
 // failure event.
 //
 // Setup checklist:
-//   1. Dashboard → Settings → Webhooks → Create Webhook
-//   2. URL: https://pi-backend-qkjh.onrender.com/api/razorpay/webhook
-//   3. Secret: any random 32-char string; paste into
-//      RAZORPAY_WEBHOOK_SECRET env var on Render
+//   1. Dashboard → Account & Settings → Webhooks → Create Webhook
+//   2. URL: https://api.qr4emergency.com/api/razorpay/webhook
+//      (the production backend; the retired onrender.com host must NOT
+//      be left configured — a stale URL silently drops events.)
+//   3. Secret: any random 32-char string; paste into the
+//      RAZORPAY_WEBHOOK_SECRET env var on the backend host and in the
+//      Razorpay webhook config. The two must match byte-for-byte.
 //   4. Events: at minimum tick payment.captured, payment.failed,
-//      payment.authorized
-//   5. Save. Razorpay will send test events; check Render logs for
-//      `[razorpay/webhook]` markers to confirm they land.
+//      payment.authorized, order.paid.
+//   5. Save and make sure the row shows Status = Active (Disabled rows
+//      receive nothing). Watch backend logs for `[razorpay/webhook]`
+//      markers to confirm events land.
 
 // Razorpay signs the webhook body with HMAC-SHA256. We compute the
 // same HMAC on our side and compare with what they sent. Timing-safe
