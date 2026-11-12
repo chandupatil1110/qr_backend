@@ -520,30 +520,9 @@
           <option>Saudi Arabia</option>
         </select>
       </div>
-      <div class="form-field">
-        <label>
-          <svg class="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12l9-9 9 9"/><path d="M5 10v10h14V10"/></svg>
-          Address
-        </label>
-        <input id="reg-addr1" placeholder="House/Flat, Building, Street" />
-      </div>
-      <div class="form-field">
-        <label>
-          <svg class="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2C8.14 2 5 5.14 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.86-3.14-7-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>
-          Pincode
-        </label>
-        <div class="pincode-wrap">
-          <input id="reg-pincode" placeholder="6-digit postal code" inputmode="numeric" maxlength="6" />
-          <div id="reg-pincode-spinner" class="pincode-spinner hidden"></div>
-        </div>
-      </div>
-      <div class="form-field">
-        <label>
-          <svg class="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21V9l9-6 9 6v12"/><path d="M9 21v-6h6v6"/></svg>
-          City
-        </label>
-        <input id="reg-city" placeholder="Your city" />
-      </div>
+      <!-- Fields flow broadest → most specific:
+           Country → State → City → Pincode → Address.
+           Matches the way an address is read top-down on a label. -->
       <div class="form-field">
         <label>
           <svg class="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4l-6 2v16l6-2 6 2 6-2V4l-6 2-6-2z"/><path d="M9 4v16"/><path d="M15 6v16"/></svg>
@@ -588,6 +567,30 @@
           <option>Uttarakhand</option>
           <option>West Bengal</option>
         </select>
+      </div>
+      <div class="form-field">
+        <label>
+          <svg class="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21V9l9-6 9 6v12"/><path d="M9 21v-6h6v6"/></svg>
+          City
+        </label>
+        <input id="reg-city" placeholder="Your city" />
+      </div>
+      <div class="form-field">
+        <label>
+          <svg class="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2C8.14 2 5 5.14 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.86-3.14-7-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>
+          Pincode
+        </label>
+        <div class="pincode-wrap">
+          <input id="reg-pincode" placeholder="6-digit postal code" inputmode="numeric" maxlength="6" />
+          <div id="reg-pincode-spinner" class="pincode-spinner hidden"></div>
+        </div>
+      </div>
+      <div class="form-field">
+        <label>
+          <svg class="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12l9-9 9 9"/><path d="M5 10v10h14V10"/></svg>
+          Address
+        </label>
+        <input id="reg-addr1" placeholder="House/Flat, Building, Street" />
       </div>
     </div>
 
@@ -1026,10 +1029,13 @@
 
       if (!vBlood) return showModal("Blood group is required");
 
-      if (!vAddr1) return showModal("Address is required");
-      if (!/^\d{6}$/.test(vPincode)) return showModal("Enter a valid 6-digit pincode");
-      if (!vCity) return showModal("City is required");
+      // Address fields validated in the new visual order: State → City →
+      // Pincode → Address, so the error always lands on the first blank
+      // row the user sees.
       if (!vState) return showModal("State is required");
+      if (!vCity) return showModal("City is required");
+      if (!/^\d{6}$/.test(vPincode)) return showModal("Enter a valid 6-digit pincode");
+      if (!vAddr1) return showModal("Address is required");
 
       // Distributor Code sits right above the declaration checkbox in the
       // DOM; validate in the same visual order so the error points at the
