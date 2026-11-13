@@ -646,4 +646,125 @@ router.delete('/promo-video', requireAdmin, async (_req, res) => {
   }
 });
 
+// ─── Home-screen image slider (carousel_slides) ─────────────────────────
+// Admin CRUD for the image cards shown above "Top Features" on the home
+// tab. Rows are served to the mobile client by GET /api/app/carousel
+// (see app.routes.js) — DB wins over the env fallback when rows exist.
+
+router.get('/carousel', requireAdmin, async (_req, res) => {
+  try {
+    const r = await pool.query(
+      `SELECT id, tag, title, subtitle, image_url, display_order, is_active,
+              created_at, updated_at
+         FROM carousel_slides
+        ORDER BY display_order ASC, id ASC`
+    );
+    return res.json({ items: r.rows });
+  } catch (err) {
+    console.error('[admin/carousel/list] error:', err);
+    return res.status(500).json({ error: 'List failed' });
+  }
+});
+
+router.post(
+  '/carousel',
+  requireAdmin,
+  body('tag').optional().isString().isLength({ max: 60 }),
+  body('title').trim().notEmpty().isLength({ max: 160 }),
+  body('subtitle').optional().isString().isLength({ max: 400 }),
+  body('image_url').trim().notEmpty().isURL({ require_protocol: true }),
+  body('display_order').optional().isInt({ min: 0, max: 9999 }),
+  body('is_active').optional().isBoolean(),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+    try {
+      const {
+        tag = '',
+        title,
+        subtitle = '',
+        image_url,
+        display_order = 0,
+        is_active = true,
+      } = req.body;
+      const r = await pool.query(
+        `INSERT INTO carousel_slides
+           (tag, title, subtitle, image_url, display_order, is_active)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING id, tag, title, subtitle, image_url, display_order,
+                   is_active, created_at`,
+        [tag, title, subtitle, image_url, display_order, is_active]
+      );
+      return res.status(201).json(r.rows[0]);
+    } catch (err) {
+      console.error('[admin/carousel/create] error:', err);
+      return res.status(500).json({ error: 'Create failed' });
+    }
+  }
+);
+
+router.put(
+  '/carousel/:id',
+  requireAdmin,
+  body('tag').optional().isString().isLength({ max: 60 }),
+  body('title').optional().isString().isLength({ max: 160 }),
+  body('subtitle').optional().isString().isLength({ max: 400 }),
+  body('image_url').optional().isURL({ require_protocol: true }),
+  body('display_order').optional().isInt({ min: 0, max: 9999 }),
+  body('is_active').optional().isBoolean(),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });
+    try {
+      // COALESCE pattern — every field is optional on PUT, we only
+      // overwrite fields the caller actually sent.
+      const r = await pool.query(
+        `UPDATE carousel_slides SET
+           tag           = COALESCE($1, tag),
+           title         = COALESCE($2, title),
+           subtitle      = COALESCE($3, subtitle),
+           image_url     = COALESCE($4, image_url),
+           display_order = COALESCE($5, display_order),
+           is_active     = COALESCE($6, is_active),
+           updated_at    = NOW()
+         WHERE id = $7
+         RETURNING id, tag, title, subtitle, image_url, display_order,
+                   is_active, updated_at`,
+        [
+          req.body.tag ?? null,
+          req.body.title ?? null,
+          req.body.subtitle ?? null,
+          req.body.image_url ?? null,
+          req.body.display_order ?? null,
+          req.body.is_active ?? null,
+          id,
+        ]
+      );
+      if (r.rowCount === 0) return res.status(404).json({ error: 'Slide not found' });
+      return res.json(r.rows[0]);
+    } catch (err) {
+      console.error('[admin/carousel/update] error:', err);
+      return res.status(500).json({ error: 'Update failed' });
+    }
+  }
+);
+
+router.delete('/carousel/:id', requireAdmin, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });
+  try {
+    const r = await pool.query(
+      `DELETE FROM carousel_slides WHERE id = $1 RETURNING id`,
+      [id]
+    );
+    if (r.rowCount === 0) return res.status(404).json({ error: 'Slide not found' });
+    return res.json({ ok: true, id });
+  } catch (err) {
+    console.error('[admin/carousel/delete] error:', err);
+    return res.status(500).json({ error: 'Delete failed' });
+  }
+});
+
 export default router;

@@ -216,6 +216,51 @@
       </div>
     </div>
 
+    <!-- Home-screen image slider -->
+    <div class="card">
+      <h2>Home Screen Image Slider</h2>
+      <p class="muted" style="margin-top: -6px; margin-bottom: 14px;">
+        Swipeable image cards shown above "Top Features" on every user's
+        home tab. Changes take effect the next time a user opens the home
+        tab — no app update needed. Image URL can point at any public
+        image (Supabase storage, Unsplash CDN, your S3/CloudFront, etc.).
+      </p>
+      <div id="slide-err" class="err hidden"></div>
+      <div id="slide-ok" class="success hidden"></div>
+
+      <div id="slides-list" style="margin-bottom: 18px;">
+        <p class="muted">Loading…</p>
+      </div>
+
+      <h3 style="margin: 18px 0 10px; font-size: 13px; font-weight: 800; letter-spacing: 0.4px; color: var(--text2);">
+        ADD NEW SLIDE
+      </h3>
+      <div class="grid2" style="margin-bottom: 10px;">
+        <div>
+          <label>Tag</label>
+          <input type="text" id="slide-tag" placeholder="ACCIDENT EMERGENCY" maxlength="60" />
+        </div>
+        <div>
+          <label>Display Order</label>
+          <input type="number" id="slide-order" value="0" min="0" max="9999" />
+        </div>
+      </div>
+      <label>Title</label>
+      <input type="text" id="slide-title"
+             placeholder="In a crash? Your family knows in seconds."
+             maxlength="160" style="margin-bottom: 10px;" />
+      <label>Subtitle</label>
+      <textarea id="slide-subtitle" rows="2" maxlength="400"
+                placeholder="Any bystander can scan your QR and reach your trusted contacts…"></textarea>
+      <div style="margin-top: 10px;">
+        <label>Image URL</label>
+        <input type="text" id="slide-image-url" placeholder="https://your-cdn.com/image.jpg" />
+      </div>
+      <div style="margin-top: 14px; display: flex; gap: 10px;">
+        <button class="primary" id="slide-add-btn">Add Slide</button>
+      </div>
+    </div>
+
     <!-- Mint form -->
     <div class="card">
       <h2>Mint New Manual QR</h2>
@@ -308,6 +353,7 @@
     $('app').classList.remove('hidden');
     loadStats();
     loadPromo();
+    loadSlides();
     load();
   }
   function showLogin() {
@@ -749,6 +795,102 @@
       btn.textContent = orig;
     }
   };
+
+  // ─── Home-screen image slider ────────────────────────────────────
+  function showSlideErr(msg) {
+    const el = $('slide-err');
+    el.textContent = msg;
+    el.classList.remove('hidden');
+    $('slide-ok').classList.add('hidden');
+  }
+  function showSlideOk(msg) {
+    const el = $('slide-ok');
+    el.textContent = msg;
+    el.classList.remove('hidden');
+    $('slide-err').classList.add('hidden');
+    setTimeout(() => el.classList.add('hidden'), 3000);
+  }
+
+  async function loadSlides() {
+    try {
+      const data = await api('/api/admin/carousel');
+      renderSlides(data.items || []);
+    } catch (e) {
+      console.error('[loadSlides]', e);
+      showSlideErr(e.message);
+    }
+  }
+
+  function renderSlides(items) {
+    const list = $('slides-list');
+    if (items.length === 0) {
+      list.innerHTML = '<p class="muted">No slides configured. Add one below to replace the hardcoded defaults.</p>';
+      return;
+    }
+    list.innerHTML = items.map((s) => `
+      <div style="display: flex; gap: 12px; align-items: center; background: var(--card2); border: 1px solid var(--hairline); border-radius: 10px; padding: 10px; margin-bottom: 10px;">
+        <img src="${esc(s.image_url)}" alt="" style="width: 92px; height: 60px; object-fit: cover; border-radius: 6px; background: #000; flex-shrink: 0;" onerror="this.style.opacity=0.2"/>
+        <div style="flex: 1; min-width: 0;">
+          <div style="font-size: 10.5px; color: var(--primary); font-weight: 800; letter-spacing: 1px;">${esc(s.tag || '')}</div>
+          <div style="font-size: 13px; font-weight: 700; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${esc(s.title)}</div>
+          <div class="muted" style="font-size: 11px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${esc(s.subtitle || '')}</div>
+          <div class="muted" style="font-size: 10px; margin-top: 2px;">order ${s.display_order} · ${s.is_active ? 'active' : 'inactive'}</div>
+        </div>
+        <button class="danger" data-id="${s.id}" data-action="delete-slide" style="padding: 8px 12px;">Remove</button>
+      </div>
+    `).join('');
+  }
+
+  $('slide-add-btn').onclick = async () => {
+    const payload = {
+      tag: $('slide-tag').value.trim(),
+      title: $('slide-title').value.trim(),
+      subtitle: $('slide-subtitle').value.trim(),
+      image_url: $('slide-image-url').value.trim(),
+      display_order: parseInt($('slide-order').value || '0', 10) || 0,
+    };
+    if (!payload.title) return showSlideErr('Title is required.');
+    if (!payload.image_url) return showSlideErr('Image URL is required.');
+    const btn = $('slide-add-btn');
+    btn.disabled = true;
+    const orig = btn.textContent;
+    btn.textContent = 'Adding…';
+    try {
+      await api('/api/admin/carousel', { method: 'POST', body: JSON.stringify(payload) });
+      showSlideOk('Slide added.');
+      $('slide-tag').value = '';
+      $('slide-title').value = '';
+      $('slide-subtitle').value = '';
+      $('slide-image-url').value = '';
+      $('slide-order').value = '0';
+      loadSlides();
+    } catch (e) {
+      showSlideErr(e.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = orig;
+    }
+  };
+
+  // Delegate delete clicks on the dynamically rendered slide list.
+  $('slides-list').addEventListener('click', async (ev) => {
+    const btn = ev.target.closest('[data-action="delete-slide"]');
+    if (!btn) return;
+    const id = btn.getAttribute('data-id');
+    if (!confirm('Remove this slide from the home carousel?')) return;
+    btn.disabled = true;
+    const orig = btn.textContent;
+    btn.textContent = 'Removing…';
+    try {
+      await api(`/api/admin/carousel/${id}`, { method: 'DELETE' });
+      showSlideOk('Slide removed.');
+      loadSlides();
+    } catch (e) {
+      showSlideErr(e.message);
+      btn.disabled = false;
+      btn.textContent = orig;
+    }
+  });
 
   // Boot
   if (adminKey) showApp(); else showLogin();

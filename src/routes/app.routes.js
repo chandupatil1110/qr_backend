@@ -113,7 +113,31 @@ function sanitizedCarouselItems(raw) {
   return cleaned.length ? cleaned : null;
 }
 
-router.get('/carousel', (req, res) => {
+router.get('/carousel', async (req, res) => {
+  // Preferred source: carousel_slides table (admin-managed). Falling
+  // through on empty table OR DB error so a fresh deploy without the
+  // migration yet still serves slides from env / defaults rather than
+  // breaking the home tab.
+  try {
+    const dbRes = await pool.query(
+      `SELECT tag, title, subtitle, image_url
+         FROM carousel_slides
+        WHERE is_active = true
+        ORDER BY display_order ASC, id ASC`
+    );
+    if (dbRes.rows.length) {
+      const items = dbRes.rows.map((r) => ({
+        tag: r.tag || '',
+        title: r.title,
+        subtitle: r.subtitle || '',
+        imageUrl: r.image_url,
+      }));
+      return res.json({ items });
+    }
+  } catch (err) {
+    console.warn('[app/carousel] db read failed, falling back to env:', err.message);
+  }
+
   const envRaw = String(config.carouselSlidesJson || '').trim();
   if (envRaw) {
     try {
