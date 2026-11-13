@@ -16,8 +16,8 @@ const router = Router();
 // user's registered mobile, so both `9876543210` and `+919876543210`
 // forms match. Keep this list SHORT.
 const DISCOUNTED_TEST_MOBILES = new Set([
+  '9156250188',
   '8857846064',
-  '7972617154',
 ]);
 const DISCOUNTED_CHARGE_PAISE = 100; // ₹1
 
