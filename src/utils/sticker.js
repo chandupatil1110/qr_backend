@@ -286,16 +286,28 @@ function buildStickerSvg({ qrPngB64, digits, showVehicle, vehicleNumber }) {
   const QR_X = (W - QR_SIZE) / 2;
   const QR_Y = QR_FRAME_TOP + QR_MARGIN_TOP;
 
-  // Text baselines centred vertically on the bracket lines. The 10 / 10
-  // offsets are ~35% of 28pt mono font (same treatment top and bottom
-  // now that both lines carry real values, not a label + a pill).
+  // Text baselines centred vertically on the bracket lines. The 10 / 7
+  // offsets are ~35% of the font sizes used (vehicle = mono 28, ext
+  // label = heading 20).
   const VEHICLE_BASELINE_Y = QR_FRAME_TOP + 10;              // sits ON top bracket line
-  const EXT_BASELINE_Y = QR_FRAME_TOP + QR_FRAME_H + 10;     // sits ON bottom bracket line
+  const EXT_LABEL_BASELINE_Y = QR_FRAME_TOP + QR_FRAME_H + 7; // "EXTENSION NO." on bottom bracket line
 
-  // Block below the QR: BE NAYAK wordmark, then website line.
-  const AFTER_FRAME_GAP = 26;  // breathing room between bottom bracket text and BE NAYAK
+  // Block below the QR frame, in order:
+  //   1. Big red mono extension digits (own dedicated row, clean space)
+  //   2. Large "BE NAYAK" wordmark
+  //   3. Small "qr4emergency.com" line
+  // The digits used to sit on the bottom bracket line with a small
+  // caption trying to label them; that caption overlapped the QR
+  // bottom modules and read as noise. Giving the digits their own row
+  // under the frame fixes that: the bracket line carries the human
+  // label ("EXTENSION NO.") and the actual digits sit below in a
+  // clean white strip where nothing can obscure them.
+  const AFTER_FRAME_GAP = 14;  // gap between bottom bracket and digits row
+  const DIGITS_SIZE = 34;
+  const DIGITS_BASELINE_Y = QR_FRAME_TOP + QR_FRAME_H + AFTER_FRAME_GAP + DIGITS_SIZE * 0.78;
+  const DIGITS_TO_BENAYAK_GAP = 22;
   const BENAYAK_SIZE = 46;
-  const BENAYAK_BASELINE_Y = QR_FRAME_TOP + QR_FRAME_H + AFTER_FRAME_GAP + BENAYAK_SIZE * 0.78;
+  const BENAYAK_BASELINE_Y = DIGITS_BASELINE_Y + DIGITS_TO_BENAYAK_GAP + BENAYAK_SIZE * 0.78;
   const WEBSITE_SIZE = 14;
   const WEBSITE_GAP = 10;
   const WEBSITE_BASELINE_Y = BENAYAK_BASELINE_Y + WEBSITE_GAP + WEBSITE_SIZE;
@@ -445,35 +457,43 @@ function buildStickerSvg({ qrPngB64, digits, showVehicle, vehicleNumber }) {
     })}`;
     })()}
 
-    <!-- ── Actual extension digits ON the bottom bracket line ─────
-         Replaces the old "Extension Number" placeholder label and the
-         detached pill — the real printed digits now sit ON the bracket
-         line in the same red mono treatment as the vehicle number
-         above. Matches the PDF reference. ─────────────────────────── -->
+    <!-- ── "EXTENSION NO." label ON the bottom bracket line ──────
+         Same "text on line" treatment as the vehicle number — black
+         Poppins Black 20pt with a white background rect behind it so
+         the bracket line visually breaks around the label. Just the
+         label; the actual digits live below the frame on their own
+         clean row (see next block). ──────────────────────────────── -->
     ${(() => {
-      const label = String(digits || '—');
+      const label = 'EXTENSION NO.';
       const textW = measureTextWidth(label, {
-        font: FONT_MONO, size: 28, letterSpacing: 1.5,
+        font: FONT_HEADING, size: 20, letterSpacing: 0.3,
       });
       const padX = 10;
       const padY = 4;
       const bgX = W / 2 - textW / 2 - padX;
-      const bgY = QR_FRAME_TOP + QR_FRAME_H - 14 - padY;
+      const bgY = QR_FRAME_TOP + QR_FRAME_H - 10 - padY;
       const bgW = textW + padX * 2;
-      const bgH = 28 + padY * 2;
+      const bgH = 20 + padY * 2;
       return `
     <rect x="${bgX}" y="${bgY}" width="${bgW}" height="${bgH}" fill="${WHITE}"/>
-    ${textPath(label, W / 2, EXT_BASELINE_Y, {
-      font: FONT_MONO, size: 28, fill: RED, anchor: 'middle', letterSpacing: 1.5,
+    ${textPath(label, W / 2, EXT_LABEL_BASELINE_Y, {
+      font: FONT_HEADING, size: 20, fill: INK, anchor: 'middle', letterSpacing: 0.3,
     })}`;
     })()}
 
     <!-- ── Red medical crosses flanking the QR frame ──────────────
          Sit in the white margins outside the scanner box, vertically
-         centered with the QR itself. Replace the old pill-flanking
-         crosses from the discontinued middle row. ───────────────── -->
+         centered with the QR itself. ──────────────────────────────── -->
     ${cross(leftSideCrossCx, sideCrossCy, SIDE_CROSS_SIZE)}
     ${cross(rightSideCrossCx, sideCrossCy, SIDE_CROSS_SIZE)}
+
+    <!-- ── Actual extension digits — own clean row under the frame ─
+         Big red mono on plain white. No QR / bracket / caption
+         overlap anywhere near it, so bystanders see the IVR extension
+         clearly. Matches the "EXTENSION NO." label above it. ─────── -->
+    ${textPath(String(digits || '—'), W / 2, DIGITS_BASELINE_Y, {
+      font: FONT_MONO, size: DIGITS_SIZE, fill: RED, anchor: 'middle', letterSpacing: 2,
+    })}
 
     <!-- ── BE NAYAK wordmark — large, centered ──────────────────── -->
     ${textPath('BE NAYAK', W / 2, BENAYAK_BASELINE_Y, {
