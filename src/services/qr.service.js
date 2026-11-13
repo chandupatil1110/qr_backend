@@ -184,13 +184,19 @@ export async function createQrRecord({
     if (!digits) {
       const sequenceName = isManual ? 'qrdata_digits_manual_seq' : 'qrdata_digits_auto_seq';
       try {
+        // LPAD(…, 5, '0') so single- and two-digit sequence values
+        // ('1', '17') arrive as '00001', '00017' — the IVR extension
+        // match and the sticker renderer both assume a fixed 5-glyph
+        // width. Sequence ranges after scripts/reset_fresh.sql:
+        //   auto   = 1..10000     → '00001'..'10000'
+        //   manual = 10001..90000 → '10001'..'90000'
         const seqRes = await client.query(
-          `SELECT nextval('${sequenceName}')::text AS digits`
+          `SELECT LPAD(nextval('${sequenceName}')::text, 5, '0') AS digits`
         );
         digits = seqRes.rows[0].digits;
       } catch (e) {
         if (String(e.message || '').toLowerCase().includes('reached maximum value')) {
-          const bucket = isManual ? 'manual (70000-999999)' : 'auto (10000-69999)';
+          const bucket = isManual ? 'manual (10001-90000)' : 'auto (1-10000)';
           const err = new Error(`QR short-code space exhausted for ${bucket}`);
           err.statusCode = 503;
           throw err;

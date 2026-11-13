@@ -43,7 +43,7 @@ export const config = {
     // don't need a hunt through templates.
     amount: parseInt(process.env.INVOICE_AMOUNT || '299', 10),
     currency: process.env.INVOICE_CURRENCY || 'INR',
-    company: process.env.INVOICE_COMPANY || 'CP Infotech & CP Network Pvt. Ltd.',
+    company: process.env.INVOICE_COMPANY || 'CP Infotech™ & CP Network Pvt. Ltd.',
     companyAddress:
       process.env.INVOICE_COMPANY_ADDRESS ||
       'Bhagwan Nagar, Nagpur, Maharashtra 440027, India',

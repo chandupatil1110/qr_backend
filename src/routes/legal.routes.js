@@ -24,7 +24,7 @@ const router = Router();
 
 // ─── Brand / contact constants ─────────────────────────────────────────
 // Keep in sync with LegalContent in mobile/lib/core/legal_content.dart.
-const COMPANY = 'CP Infotech & CP Network Pvt. Ltd.';
+const COMPANY = 'CP Infotech™ & CP Network Pvt. Ltd.';
 const OFFICE = '401, Antriksh Building, Makhwana Road, Marol Andheri East, Mumbai, Maharashtra 400069';
 const SUPPORT_EMAIL = 'support@qr4emergency.com';
 const GRIEVANCE_EMAIL = 'grievance@cpnetwork.in';

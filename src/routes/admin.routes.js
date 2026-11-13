@@ -94,6 +94,10 @@ router.post(
     // resync gets silently swallowed by the catch. See migration 023
     // for the historical write-up.
     try {
+      // Floor is one below the new manual MIN (10001) — setval(…, true)
+      // means nextval returns floor+1, so 10000 here gives the first
+      // sticker '10001'. Previous value (70000) was tied to the old
+      // 70000..999999 range retired in scripts/reset_fresh.sql.
       await pool.query(`
         SELECT setval('qrdata_digits_manual_seq',
                       GREATEST(
@@ -102,7 +106,7 @@ router.post(
                         (SELECT COALESCE(MAX(CAST(digits::text AS INT)), 0)
                            FROM qrdata
                           WHERE is_manual = true AND digits::text ~ '^[0-9]+$'),
-                        70000
+                        10000
                       ),
                       true)
       `);
@@ -119,8 +123,11 @@ router.post(
         const referralCode = customCodes
           ? String(customCodes[i]).trim()
           : `${prefix}${generateReferralCode()}`;
+        // LPAD so a short sequence value (e.g. '12', '345') lands on
+        // the sticker as a 5-digit code ('00012', '00345'). See the
+        // same pad applied in qr.service.js for the paid-QR path.
         const seqRes = await client.query(
-          `SELECT nextval('qrdata_digits_manual_seq')::text AS digits`
+          `SELECT LPAD(nextval('qrdata_digits_manual_seq')::text, 5, '0') AS digits`
         );
         const digits = seqRes.rows[0].digits;
         const insertRes = await client.query(
