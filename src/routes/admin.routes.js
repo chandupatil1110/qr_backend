@@ -767,4 +767,45 @@ router.delete('/carousel/:id', requireAdmin, async (req, res) => {
   }
 });
 
+// Hand the browser a signed Supabase URL + path for a direct PUT upload.
+// Same two-step pattern as the promo video flow: backend never sees the
+// bytes, so Railway's edge timeout and container RAM stay out of it.
+// After the browser's PUT succeeds, it drops the returned `publicUrl`
+// into the slide form and clicks Add Slide as normal — no commit step
+// needed because the slide row isn't created until the admin submits.
+router.post(
+  '/carousel/sign-upload',
+  requireAdmin,
+  body('contentType').optional({ nullable: true }).isString(),
+  async (req, res) => {
+    if (!storageConfigured()) {
+      return res.status(503).json({
+        error:
+          'Supabase Storage not configured. Set SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_BUCKET in env.',
+      });
+    }
+    const mime = (req.body.contentType || 'image/jpeg').toString();
+    const ext = mime.includes('png')
+      ? 'png'
+      : mime.includes('webp')
+      ? 'webp'
+      : mime.includes('gif')
+      ? 'gif'
+      : 'jpg';
+    const objectPath = `carousel-images/${randomUUID()}.${ext}`;
+    const signed = await createSignedUploadUrl(objectPath);
+    if (signed.error) {
+      console.error('[admin/carousel/sign-upload] failed:', signed.error);
+      return res.status(502).json({ error: signed.error });
+    }
+    return res.json({
+      signedUrl: signed.signedUrl,
+      token: signed.token,
+      path: signed.path,
+      publicUrl: signed.publicUrl,
+      bucket: signed.bucket,
+    });
+  }
+);
+
 export default router;

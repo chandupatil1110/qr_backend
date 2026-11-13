@@ -67,8 +67,20 @@ function renderPng(name, opts) {
   console.log(`✓ ${name.padEnd(28)} ${png.length.toString().padStart(7)} bytes`);
 }
 
-renderPng('app_icon.png',            { canvas: 1024, insetPct: 10 });
-renderPng('app_icon_foreground.png', { canvas: 1024, insetPct: 22 });
+// insetPct tuned so the sticker reads at a comparable size to other
+// launcher icons (Pinterest, Reddit, etc. fill their tile edge-to-edge).
+//   app_icon.png             — square launcher: 3% pad. No launcher
+//                              mask on this path, so we can go flush.
+//   app_icon_foreground.png  — adaptive icon fg: 12% pad. Google's
+//                              strict "safe zone" is 17%, but most
+//                              launcher masks (Samsung squircle, Pixel
+//                              circle, Oxygen rounded square) show
+//                              ~82% of the canvas — 12% keeps the
+//                              sticker's header/footer inside the
+//                              visible region on every mask I've
+//                              tested while still filling the tile.
+renderPng('app_icon.png',            { canvas: 1024, insetPct: 3 });
+renderPng('app_icon_foreground.png', { canvas: 1024, insetPct: 12 });
 
 console.log('\nNext:');
 console.log('  cd mobile');

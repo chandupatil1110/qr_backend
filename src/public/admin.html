@@ -252,11 +252,32 @@
       <label>Subtitle</label>
       <textarea id="slide-subtitle" rows="2" maxlength="400"
                 placeholder="Any bystander can scan your QR and reach your trusted contacts…"></textarea>
-      <div style="margin-top: 10px;">
-        <label>Image URL</label>
-        <input type="text" id="slide-image-url" placeholder="https://your-cdn.com/image.jpg" />
+
+      <div style="margin-top: 14px;">
+        <label>Image</label>
+        <input type="file" id="slide-file"
+               accept="image/jpeg,image/png,image/webp,image/gif"
+               style="padding: 10px 12px;" />
+        <p class="muted" id="slide-upload-note" style="margin: 6px 0 0; font-size: 11px;">
+          Pick a JPEG, PNG, WebP, or GIF. Uploads straight to Supabase storage.
+          16:9 or 4:3 reads cleanest in the carousel.
+        </p>
+        <div style="margin-top: 10px; display: flex; gap: 10px;">
+          <button class="ghost" id="slide-upload-btn">Upload Image</button>
+        </div>
+        <div id="slide-preview-wrap" class="hidden" style="margin-top: 12px;">
+          <img id="slide-preview" src="" alt="preview"
+               style="width: 100%; max-width: 360px; aspect-ratio: 4/3; object-fit: cover; border-radius: 10px; background: #000; border: 1px solid var(--hairline);" />
+          <p class="muted" style="margin: 6px 0 0; font-size: 11px; word-break: break-all;">
+            <span id="slide-image-url-display">—</span>
+          </p>
+        </div>
+        <!-- Hidden holder for the uploaded URL; also updated manually if
+             an admin wants to paste an external URL instead of uploading. -->
+        <input type="hidden" id="slide-image-url" value="" />
       </div>
-      <div style="margin-top: 14px; display: flex; gap: 10px;">
+
+      <div style="margin-top: 16px; display: flex; gap: 10px;">
         <button class="primary" id="slide-add-btn">Add Slide</button>
       </div>
     </div>
@@ -841,6 +862,61 @@
     `).join('');
   }
 
+  // Upload an image file directly to Supabase storage, then stash the
+  // resulting public URL in the hidden input so the Add Slide button
+  // can use it. Same 2-step (sign → PUT) flow as the promo video,
+  // minus a commit step — we don't persist the URL until the admin
+  // actually submits the slide form.
+  $('slide-upload-btn').onclick = async () => {
+    const input = $('slide-file');
+    const file = input.files && input.files[0];
+    if (!file) return showSlideErr('Pick an image file first.');
+    if (file.size > 10 * 1024 * 1024) {
+      return showSlideErr('Image too large — keep it under 10 MB.');
+    }
+    const btn = $('slide-upload-btn');
+    btn.disabled = true;
+    const orig = btn.textContent;
+    btn.textContent = 'Preparing…';
+    try {
+      const signed = await api('/api/admin/carousel/sign-upload', {
+        method: 'POST',
+        body: JSON.stringify({ contentType: file.type || 'image/jpeg' }),
+      });
+
+      btn.textContent = 'Uploading 0%…';
+      await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('PUT', signed.signedUrl, true);
+        xhr.setRequestHeader('Content-Type', file.type || 'image/jpeg');
+        xhr.setRequestHeader('x-upsert', 'true');
+        xhr.upload.onprogress = (ev) => {
+          if (ev.lengthComputable) {
+            const pct = Math.round((ev.loaded / ev.total) * 100);
+            btn.textContent = 'Uploading ' + pct + '%…';
+          }
+        };
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) resolve();
+          else reject(new Error('Supabase upload failed: HTTP ' + xhr.status));
+        };
+        xhr.onerror = () => reject(new Error('Network error during upload'));
+        xhr.send(file);
+      });
+
+      $('slide-image-url').value = signed.publicUrl;
+      $('slide-image-url-display').textContent = signed.publicUrl;
+      $('slide-preview').src = signed.publicUrl;
+      $('slide-preview-wrap').classList.remove('hidden');
+      showSlideOk('Image uploaded. Fill the fields above and click Add Slide.');
+    } catch (e) {
+      showSlideErr(e.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = orig;
+    }
+  };
+
   $('slide-add-btn').onclick = async () => {
     const payload = {
       tag: $('slide-tag').value.trim(),
@@ -850,7 +926,9 @@
       display_order: parseInt($('slide-order').value || '0', 10) || 0,
     };
     if (!payload.title) return showSlideErr('Title is required.');
-    if (!payload.image_url) return showSlideErr('Image URL is required.');
+    if (!payload.image_url) {
+      return showSlideErr('Upload an image first — the Upload Image button above.');
+    }
     const btn = $('slide-add-btn');
     btn.disabled = true;
     const orig = btn.textContent;
@@ -862,6 +940,9 @@
       $('slide-title').value = '';
       $('slide-subtitle').value = '';
       $('slide-image-url').value = '';
+      $('slide-image-url-display').textContent = '—';
+      $('slide-preview-wrap').classList.add('hidden');
+      $('slide-file').value = '';
       $('slide-order').value = '0';
       loadSlides();
     } catch (e) {
