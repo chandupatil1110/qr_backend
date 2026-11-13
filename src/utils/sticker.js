@@ -261,13 +261,18 @@ const W = 460;
  * @returns {string} SVG document
  */
 function buildStickerSvg({ qrPngB64, digits, showVehicle, vehicleNumber }) {
-  // Vertical layout — the L-bracket frame outlines the QR area. The
-  // vehicle number and "Extension Number" text sit ON the top and
-  // bottom bracket lines (not inside the box) — the bracket line
-  // visually breaks around each label. Achieved by drawing a white
-  // background rect behind each text label BEFORE painting the text,
-  // which hides the bracket segment under the label. Longer bracket
-  // arms so they reach almost to the text edges from each corner.
+  // Vertical layout — matches the PDF reference:
+  //   1. Red header: QR 4 EMERGENCY + SCAN TO CALL OWNER
+  //   2. QR frame with corner brackets.
+  //      Top bracket line:    vehicle number (where auto QR)
+  //      Bottom bracket line: actual extension digits (NOT the
+  //                           "Extension Number" placeholder label — the
+  //                           real printed digits sit on this line, same
+  //                           red mono treatment as the vehicle number)
+  //      Red medical crosses flanking the frame OUTSIDE on left + right
+  //   3. Centered large "BE NAYAK" wordmark
+  //   4. Small "qr4emergency.com" line
+  //   5. Red footer: ⚠ ACCIDENT | 📍 TRACKING | ℗ NO PARKING
   const HEADER_H = 80;
   const HEADER_TO_FRAME_GAP = 24; // clearance above vehicle text (text extends above frame top)
 
@@ -281,39 +286,35 @@ function buildStickerSvg({ qrPngB64, digits, showVehicle, vehicleNumber }) {
   const QR_X = (W - QR_SIZE) / 2;
   const QR_Y = QR_FRAME_TOP + QR_MARGIN_TOP;
 
-  // Text baselines centred vertically on the bracket lines. The 10 / 7
-  // offsets are ~35% of font size (matches Poppins/JetBrains Mono's
-  // baseline-to-visual-centre distance at the sizes we use).
+  // Text baselines centred vertically on the bracket lines. The 10 / 10
+  // offsets are ~35% of 28pt mono font (same treatment top and bottom
+  // now that both lines carry real values, not a label + a pill).
   const VEHICLE_BASELINE_Y = QR_FRAME_TOP + 10;              // sits ON top bracket line
-  const EXT_BASELINE_Y = QR_FRAME_TOP + QR_FRAME_H + 7;      // sits ON bottom bracket line
+  const EXT_BASELINE_Y = QR_FRAME_TOP + QR_FRAME_H + 10;     // sits ON bottom bracket line
 
-  // Row below the frame — leave enough room for the extension text that
-  // extends BELOW the bottom bracket line.
-  const AFTER_FRAME_Y = QR_FRAME_TOP + QR_FRAME_H + 14;
-  const ROW_Y = AFTER_FRAME_Y + 6;
-  const ROW_H = 52;
+  // Block below the QR: BE NAYAK wordmark, then website line.
+  const AFTER_FRAME_GAP = 26;  // breathing room between bottom bracket text and BE NAYAK
+  const BENAYAK_SIZE = 46;
+  const BENAYAK_BASELINE_Y = QR_FRAME_TOP + QR_FRAME_H + AFTER_FRAME_GAP + BENAYAK_SIZE * 0.78;
+  const WEBSITE_SIZE = 14;
+  const WEBSITE_GAP = 10;
+  const WEBSITE_BASELINE_Y = BENAYAK_BASELINE_Y + WEBSITE_GAP + WEBSITE_SIZE;
 
-  const FOOTER_TOP = ROW_Y + ROW_H + 14;
-  const FOOTER_H = 60;
+  const FOOTER_TOP = WEBSITE_BASELINE_Y + 14;
+  const FOOTER_H = 44;
   const H = FOOTER_TOP + FOOTER_H;
 
-  // Bracket arm length — longer than usual so the arms extend inward
-  // toward the vehicle/extension text, reinforcing the "text on the
-  // line" visual. The white bg rect behind each text hides the arm
-  // segment that would otherwise run underneath.
+  // Bracket arm length — long enough to reach almost to each text label.
+  // The white bg rect painted behind each text hides the bracket segment
+  // underneath so the line visually "breaks" around the data.
   const ARM = 70;
   const BRACKET_W = 8;
 
   // Outer border ring — thin black stroke around the entire sticker.
-  // Reference art shows this as part of the printed edge trim; sticker
-  // vinyls also benefit from a visible cut-line for guillotine trimming.
   const BORDER_W = 3;
 
-  // Medical cross — flat solid red plus sign. Matches the reference
-  // artwork exactly: no gradient, no drop shadow, no enamel highlight.
-  // Two overlapping rects (vertical bar + horizontal bar), same red as
-  // the header and footer bands so the cross reads as part of the
-  // brand system rather than a lifted-off-the-surface badge.
+  // Medical cross — flat solid red plus sign. Two overlapping rects
+  // (vertical bar + horizontal bar), same red as the header + footer.
   const cross = (cx, cy, size) => {
     const bar = size * 0.32;
     return `
@@ -322,29 +323,15 @@ function buildStickerSvg({ qrPngB64, digits, showVehicle, vehicleNumber }) {
     `;
   };
 
-  // Extension pill — sized proportionally to the larger BE NAYAK
-  // labels flanking it. 150×50 keeps ~5px of vertical padding around
-  // the 28pt mono digits and holds a 5-digit extension without cramping.
-  const PILL_W = 150;
-  const PILL_H = 50;
-  const PILL_X = (W - PILL_W) / 2;
-  const PILL_Y = ROW_Y + (ROW_H - PILL_H) / 2;
-
-  // Bottom row horizontal layout: BE NAYAK ... cross ... pill ... cross ... BE NAYAK
-  // Every gap is computed from real measured widths so the row stays
-  // perfectly symmetric — no hardcoded label-width guesses that drift
-  // when font or copy changes. Cross 30 balances the 20pt BE NAYAK
-  // without eating so much horizontal room that BE NAYAK collides
-  // with it (which happened at 32 + 170px pill).
-  const CROSS_SIZE = 30;
-  const CROSS_TO_PILL_GAP = 6;
-  const leftCrossCx = PILL_X - CROSS_TO_PILL_GAP - CROSS_SIZE / 2;
-  const rightCrossCx = PILL_X + PILL_W + CROSS_TO_PILL_GAP + CROSS_SIZE / 2;
-  // BE NAYAK anchors — pushed closer to the sticker edges so the 20pt
-  // wordmark has room to render without colliding with the crosses.
-  const leftLabelX = 8;
-  const rightLabelX = W - 8;
-  const rowCy = ROW_Y + ROW_H / 2;
+  // Side crosses flanking the QR frame. Centered vertically with the QR
+  // and anchored close to the sticker edges — matches the PDF where
+  // the two red crosses sit in the white margins beside the scanner
+  // frame.
+  const SIDE_CROSS_SIZE = 56;
+  const SIDE_CROSS_EDGE_PAD = 10;
+  const sideCrossCy = QR_FRAME_TOP + QR_FRAME_H / 2;
+  const leftSideCrossCx = SIDE_CROSS_EDGE_PAD + SIDE_CROSS_SIZE / 2;
+  const rightSideCrossCx = W - SIDE_CROSS_EDGE_PAD - SIDE_CROSS_SIZE / 2;
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W * 3}" height="${H * 3}">
@@ -458,63 +445,51 @@ function buildStickerSvg({ qrPngB64, digits, showVehicle, vehicleNumber }) {
     })}`;
     })()}
 
-    <!-- ── "Extension Number" ON the bottom bracket line ──────────
-         Same "text on line" treatment as the vehicle number. Poppins
-         Black 20pt matches BE NAYAK's typography so the two labels
-         read as a matched pair. ────────────────────────────────── -->
+    <!-- ── Actual extension digits ON the bottom bracket line ─────
+         Replaces the old "Extension Number" placeholder label and the
+         detached pill — the real printed digits now sit ON the bracket
+         line in the same red mono treatment as the vehicle number
+         above. Matches the PDF reference. ─────────────────────────── -->
     ${(() => {
-      const label = 'Extension Number';
+      const label = String(digits || '—');
       const textW = measureTextWidth(label, {
-        font: FONT_HEADING, size: 20, letterSpacing: 0.2,
+        font: FONT_MONO, size: 28, letterSpacing: 1.5,
       });
       const padX = 10;
       const padY = 4;
       const bgX = W / 2 - textW / 2 - padX;
-      const bgY = QR_FRAME_TOP + QR_FRAME_H - 10 - padY;
+      const bgY = QR_FRAME_TOP + QR_FRAME_H - 14 - padY;
       const bgW = textW + padX * 2;
-      const bgH = 20 + padY * 2;
+      const bgH = 28 + padY * 2;
       return `
     <rect x="${bgX}" y="${bgY}" width="${bgW}" height="${bgH}" fill="${WHITE}"/>
     ${textPath(label, W / 2, EXT_BASELINE_Y, {
-      font: FONT_HEADING, size: 20, fill: INK, anchor: 'middle', letterSpacing: 0.2,
+      font: FONT_MONO, size: 28, fill: RED, anchor: 'middle', letterSpacing: 1.5,
     })}`;
     })()}
 
-    <!-- ── Bottom row: BE NAYAK · cross · pill · cross · BE NAYAK ── -->
-    ${textPath('BE NAYAK', leftLabelX, rowCy + 7, {
-      font: FONT_HEADING, size: 20, fill: INK, anchor: 'start', letterSpacing: 0.5,
-    })}
-    ${cross(leftCrossCx, rowCy, CROSS_SIZE)}
+    <!-- ── Red medical crosses flanking the QR frame ──────────────
+         Sit in the white margins outside the scanner box, vertically
+         centered with the QR itself. Replace the old pill-flanking
+         crosses from the discontinued middle row. ───────────────── -->
+    ${cross(leftSideCrossCx, sideCrossCy, SIDE_CROSS_SIZE)}
+    ${cross(rightSideCrossCx, sideCrossCy, SIDE_CROSS_SIZE)}
 
-    <!-- White pill with red digits and a thin dark outline — matches the
-         printed sticker artwork exactly. Kept flat (no gradient / gloss)
-         so the digits pop crisply against the plain white body. Digits
-         baseline centred vertically within the taller 52px pill. -->
-    <rect x="${PILL_X}" y="${PILL_Y}" width="${PILL_W}" height="${PILL_H}"
-          rx="10" ry="10" fill="${WHITE}"
-          stroke="${INK}" stroke-width="1.4"/>
-    ${textPath(digits || '—', W / 2, PILL_Y + 35, {
-      font: FONT_MONO, size: 28, fill: RED, anchor: 'middle', letterSpacing: 1.5,
+    <!-- ── BE NAYAK wordmark — large, centered ──────────────────── -->
+    ${textPath('BE NAYAK', W / 2, BENAYAK_BASELINE_Y, {
+      font: FONT_HEADING, size: BENAYAK_SIZE, fill: INK, anchor: 'middle', letterSpacing: 2,
     })}
 
-    ${cross(rightCrossCx, rowCy, CROSS_SIZE)}
-    ${textPath('BE NAYAK', rightLabelX, rowCy + 7, {
-      font: FONT_HEADING, size: 20, fill: INK, anchor: 'end', letterSpacing: 0.5,
+    <!-- ── qr4emergency.com line under BE NAYAK ─────────────────── -->
+    ${textPath('qr4emergency.com', W / 2, WEBSITE_BASELINE_Y, {
+      font: FONT_BODY, size: WEBSITE_SIZE, fill: INK, anchor: 'middle', letterSpacing: 0.3,
     })}
 
-    <!-- ── Red footer with two icon rows ───────────────────── -->
+    <!-- ── Red footer: ACCIDENT | TRACKING | NO PARKING ─────────── -->
     <rect x="0" y="${FOOTER_TOP}" width="${W}" height="${FOOTER_H}" fill="url(#footerGrad)"/>
-    <!-- Subtle top-edge shadow so the footer sits below the white body
-         instead of feeling glued to it. -->
+    <!-- Subtle top-edge shadow so the footer sits below the white body. -->
     <rect x="0" y="${FOOTER_TOP}" width="${W}" height="1.5" fill="#000000" opacity="0.25"/>
-
-    <!-- Row 1: globe + website | mail + email -->
-    ${footerRow1(FOOTER_TOP + 16)}
-
-    <!-- Row 2: warning + ACCIDENT | pin + TRACKING | P + NO PARKING,
-         separated by thin white vertical dividers. Baseline pulled
-         closer to Row 1 (was +54, now +44) for the tighter footer. -->
-    ${footerRow2(FOOTER_TOP + 44)}
+    ${footerRow2(FOOTER_TOP + FOOTER_H / 2 + 4)}
   </g>
 
   <!-- ── Outer black border ring ──────────────────────────────
@@ -530,54 +505,7 @@ function buildStickerSvg({ qrPngB64, digits, showVehicle, vehicleNumber }) {
 
 // ── Footer helpers ────────────────────────────────────────────────
 
-// Row 1: globe + website chip on the left, mail + email chip on the
-// right. Uses real measured text widths so the icon-to-text gap is
-// EXACTLY the same on both sides, regardless of font metrics or copy
-// changes. Left-anchored on the left, right-anchored on the right —
-// gives symmetric visual weight against the sticker edges.
-function footerRow1(y) {
-  const ICON_SIZE = 18;
-  const ICON_TEXT_GAP = 7; // px gap between icon's right edge and text's left edge
-  const EDGE_PAD = 8;      // px from sticker edge to first/last element
-  const font = FONT_BODY;
-  // 14pt at 460px sticker width was over-eating room between the two
-  // chips (mail icon touched ".com" of the website URL). 13pt is the
-  // largest that leaves ~40px of centre breathing room. Keep icon 18px.
-  const size = 13;
-
-  // Left side: globe icon at EDGE_PAD, text follows.
-  const leftIconX = EDGE_PAD;
-  const leftTextX = leftIconX + ICON_SIZE + ICON_TEXT_GAP;
-
-  // Right side: measure the email text FIRST, then place the icon just
-  // to its left with the exact same gap. This is what was drifting
-  // before — a hardcoded 175px estimate for a string that renders at
-  // ~155px meant the icon sat 20px too far left.
-  const emailText = 'support@qr4emergency.com';
-  const emailWidth = measureTextWidth(emailText, { font, size });
-  const rightTextRight = W - EDGE_PAD;
-  const rightTextLeft = rightTextRight - emailWidth;
-  const rightIconX = rightTextLeft - ICON_TEXT_GAP - ICON_SIZE;
-
-  // Icon Y is derived from ICON_SIZE so the icon centerline stays
-  // vertically aligned with the text visual centre no matter how big
-  // the icon gets. Previous hardcoded `y - 10` drifted when icon size
-  // was bumped from 14 → 18.
-  const iconY = y - ICON_SIZE / 2 - 3;
-  return `
-    ${iconGlobe(leftIconX, iconY, ICON_SIZE, WHITE)}
-    ${textPath('www.qr4emergency.com', leftTextX, y + 2, {
-      font, size, fill: WHITE, anchor: 'start',
-    })}
-
-    ${iconMail(rightIconX, iconY, ICON_SIZE, WHITE)}
-    ${textPath(emailText, rightTextRight, y + 2, {
-      font, size, fill: WHITE, anchor: 'end',
-    })}
-  `;
-}
-
-// Row 2: three feature badges with thin white dividers between them.
+// Three feature badges with thin white dividers between them.
 // Each [icon + gap + label] block is centred on its column using the
 // REAL measured label width so ACCIDENT (short) and NO PARKING (long)
 // each sit dead-centre in their third. Dividers land halfway between
@@ -631,28 +559,6 @@ function footerRow2(y) {
 
 // ── Inline icons (Material-style, drawn as SVG primitives) ────────
 // All take (x, y, size, color) and render inside a size×size box.
-
-function iconGlobe(x, y, s, c) {
-  const r = s / 2;
-  const cx = x + r;
-  const cy = y + r;
-  return `
-    <g stroke="${c}" stroke-width="1.2" fill="none">
-      <circle cx="${cx}" cy="${cy}" r="${r - 0.6}"/>
-      <ellipse cx="${cx}" cy="${cy}" rx="${(r - 0.6) * 0.5}" ry="${r - 0.6}"/>
-      <line x1="${x + 0.6}" y1="${cy}" x2="${x + s - 0.6}" y2="${cy}"/>
-    </g>
-  `;
-}
-
-function iconMail(x, y, s, c) {
-  return `
-    <g stroke="${c}" stroke-width="1.2" fill="none" stroke-linejoin="round">
-      <rect x="${x + 0.6}" y="${y + s * 0.2}" width="${s - 1.2}" height="${s * 0.6}" rx="1"/>
-      <path d="M${x + 0.6} ${y + s * 0.22} L${x + s / 2} ${y + s * 0.55} L${x + s - 0.6} ${y + s * 0.22}"/>
-    </g>
-  `;
-}
 
 function iconWarning(x, y, s, c) {
   // Filled red-orange triangle with a yellow interior "!".
