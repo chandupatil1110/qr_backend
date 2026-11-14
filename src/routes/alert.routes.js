@@ -308,29 +308,38 @@ router.post('/:uniqueId/manual_activate',
     const manualQr = manualRes.rows[0];
 
     if (!manualQr || manualQr.referral_code !== referralCode) {
-      return res.status(400).json({ error: 'Invalid QR or Referral Code' });
+      return res.status(400).json({ error: 'Invalid QR or Distributor Code' });
     }
 
-    // Check if user exists
+    // Reuse the existing users row if this mobile is already registered —
+    // a real app user who also redeems a physical sticker should get the
+    // new qrdata row linked to their existing account, not rejected.
+    let userId;
     const existingRes = await pool.query(`SELECT id FROM users WHERE mobile = $1`, [mobile]);
     if (existingRes.rows.length > 0) {
-      return res.status(400).json({ error: 'User already exists with this number' });
-    }
-
-    let userId;
-    try {
-      // Create manualUser
-      const userRes = await pool.query(
-        `INSERT INTO users (name, mobile, email, manual_user) VALUES ($1, $2, $3, true) RETURNING id`,
-        [name, mobile, email || null]
-      );
-      userId = userRes.rows[0].id;
-    } catch (err) {
-      if (err.code === '23505') { // postgres unique constraint
-        console.error('manual_activate duplicate user:', err);
-        return res.status(400).json({ error: 'User already exists with this number' });
+      userId = existingRes.rows[0].id;
+    } else {
+      try {
+        const userRes = await pool.query(
+          `INSERT INTO users (name, mobile, email, manual_user) VALUES ($1, $2, $3, true) RETURNING id`,
+          [name, mobile, email || null]
+        );
+        userId = userRes.rows[0].id;
+      } catch (err) {
+        if (err.code === '23505') {
+          // Race: users row appeared between the SELECT and the INSERT.
+          // Fetch the id and continue linking the QR to it.
+          const retry = await pool.query(`SELECT id FROM users WHERE mobile = $1`, [mobile]);
+          if (retry.rows.length > 0) {
+            userId = retry.rows[0].id;
+          } else {
+            console.error('manual_activate race without row:', err);
+            return res.status(500).json({ error: err.message });
+          }
+        } else {
+          return res.status(500).json({ error: err.message });
+        }
       }
-      return res.status(500).json({ error: err.message });
     }
 
     // Use internal QR service — pass the pre-allocated digits from

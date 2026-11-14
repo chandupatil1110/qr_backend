@@ -79,7 +79,22 @@ export async function ensureBucket() {
       };
     }
   } catch (err) {
-    return { ok: false, error: `bucket_lookup_failed: ${err.message}` };
+    // `fetch failed` with no HTTP status means Node couldn't even get a
+    // response — usually a bad SUPABASE_URL, paused project, or DNS
+    // failure. Logging the URL (without the key) makes this diagnosable
+    // from Railway logs instead of a generic "fetch failed" message.
+    console.error(
+      `[storage] bucket lookup threw before a response. url=${base}/bucket/${bucket} err=${err.message}`
+    );
+    const hint = /invalid url|invalid-url/i.test(err.message)
+      ? 'SUPABASE_URL is malformed'
+      : /ENOTFOUND|getaddrinfo/i.test(err.message)
+      ? `DNS could not resolve ${base} — SUPABASE_URL is wrong or the project is paused`
+      : 'SUPABASE_URL is unreachable (typo, paused project, or network outage)';
+    return {
+      ok: false,
+      error: `bucket_lookup_failed: ${err.message} — ${hint}`,
+    };
   }
 
   // 2. Bucket doesn't exist — create it public so the getPublicUrl()
