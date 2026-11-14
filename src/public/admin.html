@@ -245,7 +245,7 @@
           <input type="number" id="slide-order" value="0" min="0" max="9999" />
         </div>
       </div>
-      <label>Title</label>
+      <label>Title (optional)</label>
       <input type="text" id="slide-title"
              placeholder="In a crash? Your family knows in seconds."
              maxlength="160" style="margin-bottom: 10px;" />
@@ -925,7 +925,6 @@
       image_url: $('slide-image-url').value.trim(),
       display_order: parseInt($('slide-order').value || '0', 10) || 0,
     };
-    if (!payload.title) return showSlideErr('Title is required.');
     if (!payload.image_url) {
       return showSlideErr('Upload an image first — the Upload Image button above.');
     }

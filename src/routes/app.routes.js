@@ -53,10 +53,10 @@ function sanitizedCarouselItems(raw) {
   if (!Array.isArray(raw) || raw.length === 0) return null;
   const cleaned = raw
     .slice(0, 10)
-    .filter((s) => s && typeof s === 'object' && s.imageUrl && s.title)
+    .filter((s) => s && typeof s === 'object' && s.imageUrl)
     .map((s) => ({
       tag: String(s.tag || ''),
-      title: String(s.title),
+      title: String(s.title || ''),
       subtitle: String(s.subtitle || ''),
       imageUrl: String(s.imageUrl),
     }));

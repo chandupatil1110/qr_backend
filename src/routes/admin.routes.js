@@ -670,7 +670,7 @@ router.post(
   '/carousel',
   requireAdmin,
   body('tag').optional().isString().isLength({ max: 60 }),
-  body('title').trim().notEmpty().isLength({ max: 160 }),
+  body('title').optional({ nullable: true }).isString().isLength({ max: 160 }),
   body('subtitle').optional().isString().isLength({ max: 400 }),
   body('image_url').trim().notEmpty().isURL({ require_protocol: true }),
   body('display_order').optional().isInt({ min: 0, max: 9999 }),
@@ -681,7 +681,7 @@ router.post(
     try {
       const {
         tag = '',
-        title,
+        title = '',
         subtitle = '',
         image_url,
         display_order = 0,
