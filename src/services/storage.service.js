@@ -23,6 +23,33 @@ const authHeaders = () => {
   };
 };
 
+// Mask the service-role JWT before logging — it's a bearer credential, so
+// anything that ends up in logs needs to be redacted. Shape like
+// "eyJhbGc...JGY0 (len=219)" keeps enough signal to tell "key is loaded"
+// apart from "key missing / truncated" without leaking the full token.
+function maskKey(key) {
+  if (!key) return '<missing>';
+  const len = key.length;
+  if (len <= 10) return `<short len=${len}>`;
+  return `${key.slice(0, 6)}...${key.slice(-4)} (len=${len})`;
+}
+
+// Log the resolved supabase env once per process. Fires lazily on the
+// first Storage call so boot-time logs stay clean for deploys that never
+// touch Supabase (local dev without SUPABASE_URL set, etc.).
+let _configLogged = false;
+function logStorageConfigOnce() {
+  if (_configLogged) return;
+  _configLogged = true;
+  const { url, serviceRoleKey, bucket } = config.supabase;
+  console.log(
+    `[storage] config: SUPABASE_URL=${url || '<missing>'} ` +
+      `SUPABASE_BUCKET=${bucket || '<missing>'} ` +
+      `SUPABASE_SERVICE_ROLE_KEY=${maskKey(serviceRoleKey)} ` +
+      `configured=${Boolean(url && serviceRoleKey && bucket)}`
+  );
+}
+
 export function storageConfigured() {
   const { url, serviceRoleKey, bucket } = config.supabase;
   return Boolean(url && serviceRoleKey && bucket);
@@ -47,24 +74,34 @@ let _bucketReady = { name: null, ok: false };
 // surfaces the message so the admin can see WHY it failed instead of
 // getting Supabase's opaque "The related resource does not exist".
 export async function ensureBucket() {
-  if (!storageConfigured()) {
-    return { ok: false, error: 'storage_not_configured' };
-  }
+  logStorageConfigOnce();
   const base = STORAGE_BASE();
   const { bucket } = config.supabase;
+  const cached = _bucketReady.name === bucket && _bucketReady.ok;
+  console.log(
+    `[storage] ensureBucket start: bucket="${bucket || '<missing>'}" base="${base || '<missing>'}" cached=${cached}`
+  );
 
-  if (_bucketReady.name === bucket && _bucketReady.ok) {
+  if (!storageConfigured()) {
+    console.warn('[storage] ensureBucket → storage_not_configured (one of SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY/SUPABASE_BUCKET is empty)');
+    return { ok: false, error: 'storage_not_configured' };
+  }
+
+  if (cached) {
     return { ok: true };
   }
 
   // 1. Does the bucket already exist?
+  const lookupUrl = `${base}/bucket/${encodeURIComponent(bucket)}`;
+  const startedAt = Date.now();
   try {
-    const res = await fetch(
-      `${base}/bucket/${encodeURIComponent(bucket)}`,
-      { headers: authHeaders() }
-    );
+    console.log(`[storage] bucket GET → ${lookupUrl}`);
+    const res = await fetch(lookupUrl, { headers: authHeaders() });
+    const elapsedMs = Date.now() - startedAt;
+    console.log(`[storage] bucket GET ← HTTP ${res.status} in ${elapsedMs}ms`);
     if (res.ok) {
       _bucketReady = { name: bucket, ok: true };
+      console.log(`[storage] bucket "${bucket}" ready (lookup ok)`);
       return { ok: true };
     }
     if (res.status !== 404 && res.status !== 400) {
@@ -72,23 +109,28 @@ export async function ensureBucket() {
       // URL/key are from different projects. Surface with the exact
       // status so the admin can act on it.
       const text = await res.text().catch(() => '');
+      console.error(
+        `[storage] bucket lookup non-OK HTTP ${res.status}. url=${lookupUrl} body="${text.slice(0, 200)}"`
+      );
       return {
         ok: false,
         error: `Supabase bucket lookup failed (HTTP ${res.status}). ` +
           `Check SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY point to the SAME project. ${text.slice(0, 200)}`,
       };
     }
+    console.log(`[storage] bucket lookup → ${res.status} (bucket not found yet, will create)`);
   } catch (err) {
+    const elapsedMs = Date.now() - startedAt;
     // `fetch failed` with no HTTP status means Node couldn't even get a
     // response — usually a bad SUPABASE_URL, paused project, or DNS
     // failure. Logging the URL (without the key) makes this diagnosable
     // from Railway logs instead of a generic "fetch failed" message.
     console.error(
-      `[storage] bucket lookup threw before a response. url=${base}/bucket/${bucket} err=${err.message}`
+      `[storage] bucket lookup threw before a response. url=${lookupUrl} elapsed=${elapsedMs}ms err=${err.message} cause=${err?.cause?.code || err?.cause?.message || '<none>'}`
     );
     const hint = /invalid url|invalid-url/i.test(err.message)
       ? 'SUPABASE_URL is malformed'
-      : /ENOTFOUND|getaddrinfo/i.test(err.message)
+      : /ENOTFOUND|getaddrinfo/i.test(err.message) || /ENOTFOUND|getaddrinfo/i.test(err?.cause?.code || '')
       ? `DNS could not resolve ${base} — SUPABASE_URL is wrong or the project is paused`
       : 'SUPABASE_URL is unreachable (typo, paused project, or network outage)';
     return {
@@ -106,8 +148,11 @@ export async function ensureBucket() {
   //    global cap varies by plan (Free 50MB, Pro 5GB, custom). Letting
   //    the bucket inherit the project default sidesteps that mismatch.
   //    Per-upload size is guarded client-side in admin.html.
+  const createUrl = `${base}/bucket`;
+  const createStartedAt = Date.now();
   try {
-    const res = await fetch(`${base}/bucket`, {
+    console.log(`[storage] bucket POST → ${createUrl} body.id="${bucket}"`);
+    const res = await fetch(createUrl, {
       method: 'POST',
       headers: {
         ...authHeaders(),
@@ -120,21 +165,27 @@ export async function ensureBucket() {
         allowed_mime_types: ['video/mp4', 'video/webm', 'video/quicktime'],
       }),
     });
+    const elapsedMs = Date.now() - createStartedAt;
+    console.log(`[storage] bucket POST ← HTTP ${res.status} in ${elapsedMs}ms`);
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       // 409 (already exists) is fine — race between two admin uploads.
       if (res.status === 409) {
+        console.log(`[storage] bucket "${bucket}" already exists (409 race) — marking ready`);
         _bucketReady = { name: bucket, ok: true };
         return { ok: true };
       }
+      console.error(`[storage] bucket create failed HTTP ${res.status}: ${text.slice(0, 200)}`);
       return {
         ok: false,
         error: `Supabase bucket create failed (HTTP ${res.status}): ${text.slice(0, 200)}`,
       };
     }
     _bucketReady = { name: bucket, ok: true };
+    console.log(`[storage] bucket "${bucket}" created (public)`);
     return { ok: true };
   } catch (err) {
+    console.error(`[storage] bucket create threw: url=${createUrl} err=${err.message} cause=${err?.cause?.code || err?.cause?.message || '<none>'}`);
     return { ok: false, error: `bucket_create_failed: ${err.message}` };
   }
 }
@@ -165,6 +216,8 @@ export async function createSignedUploadUrl(objectPath) {
   const { bucket } = config.supabase;
   const endpoint = `${base}/object/upload/sign/${encodeURIComponent(bucket)}/${encodePath(objectPath)}`;
 
+  console.log(`[storage] sign POST → ${endpoint}`);
+  const signStartedAt = Date.now();
   let res;
   try {
     res = await fetch(endpoint, {
@@ -176,17 +229,22 @@ export async function createSignedUploadUrl(objectPath) {
       body: JSON.stringify({}),
     });
   } catch (err) {
+    console.error(`[storage] sign request threw: endpoint=${endpoint} err=${err.message} cause=${err?.cause?.code || err?.cause?.message || '<none>'}`);
     return { error: `sign_request_failed: ${err.message}` };
   }
+  const elapsedMs = Date.now() - signStartedAt;
   const text = await res.text();
+  console.log(`[storage] sign POST ← HTTP ${res.status} in ${elapsedMs}ms bytes=${text.length}`);
   let payload = {};
   try { payload = text ? JSON.parse(text) : {}; } catch { payload = { raw: text }; }
   if (!res.ok) {
     const msg = payload?.message || payload?.error || payload?.raw || `HTTP ${res.status}`;
+    console.error(`[storage] sign non-OK: HTTP ${res.status} msg="${String(msg).slice(0, 200)}"`);
     // If Supabase still complains about a missing resource here (rare —
     // ensureBucket() just confirmed it), invalidate the cache so the
     // next call re-checks + re-creates instead of trusting a stale yes.
     if (String(msg).toLowerCase().includes('does not exist')) {
+      console.warn('[storage] "does not exist" from sign — invalidating bucket cache so next call re-ensures');
       _bucketReady = { name: null, ok: false };
     }
     return { error: String(msg).slice(0, 300) };
@@ -207,13 +265,18 @@ export async function createSignedUploadUrl(objectPath) {
         ? payload.url
         : `${storageBase}${payload.url.startsWith('/') ? '' : '/'}${payload.url}`)
     : null;
-  if (!signedUrl) return { error: 'no_signed_url_returned' };
+  if (!signedUrl) {
+    console.error(`[storage] sign returned 2xx but payload.url was empty: payload=${JSON.stringify(payload).slice(0, 200)}`);
+    return { error: 'no_signed_url_returned' };
+  }
 
+  const publicUrl = publicUrlFor(objectPath);
+  console.log(`[storage] sign ok: bucket="${bucket}" path="${objectPath}" publicUrl=${publicUrl}`);
   return {
     signedUrl,
     token: payload.token || null,
     path: objectPath,
-    publicUrl: publicUrlFor(objectPath),
+    publicUrl,
     bucket,
   };
 }

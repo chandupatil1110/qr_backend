@@ -778,7 +778,12 @@ router.post(
   requireAdmin,
   body('contentType').optional({ nullable: true }).isString(),
   async (req, res) => {
-    if (!storageConfigured()) {
+    const configured = storageConfigured();
+    console.log(
+      `[admin/carousel/sign-upload] enter contentType="${req.body.contentType || '<default>'}" configured=${configured}`
+    );
+    if (!configured) {
+      console.warn('[admin/carousel/sign-upload] rejected: storage not configured');
       return res.status(503).json({
         error:
           'Supabase Storage not configured. Set SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_BUCKET in env.',
@@ -793,11 +798,15 @@ router.post(
       ? 'gif'
       : 'jpg';
     const objectPath = `carousel-images/${randomUUID()}.${ext}`;
+    console.log(`[admin/carousel/sign-upload] mime="${mime}" ext="${ext}" objectPath="${objectPath}"`);
     const signed = await createSignedUploadUrl(objectPath);
     if (signed.error) {
       console.error('[admin/carousel/sign-upload] failed:', signed.error);
       return res.status(502).json({ error: signed.error });
     }
+    console.log(
+      `[admin/carousel/sign-upload] ok path="${signed.path}" bucket="${signed.bucket}" publicUrl=${signed.publicUrl}`
+    );
     return res.json({
       signedUrl: signed.signedUrl,
       token: signed.token,
