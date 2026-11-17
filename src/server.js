@@ -9,6 +9,13 @@ import {
 
 assertConfig();
 
+// Last line of defence: a stray rejected promise (e.g. a fire-and-forget
+// call that fails) is logged instead of terminating the process. Route
+// handler errors are already handled by utils/asyncErrors.js.
+process.on('unhandledRejection', (reason) => {
+  console.error('[CRITICAL][process] unhandledRejection:', reason);
+});
+
 // Start database auto-expiry scheduling
 startExpiryScheduler();
 // Start last-7-days SMS countdown to owners whose QR is about to expire.

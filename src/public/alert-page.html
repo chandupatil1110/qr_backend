@@ -421,8 +421,12 @@
     <p class="sub">This QR code is unregistered. Please enter your mobile number to begin.</p>
     <div class="err hidden" id="link-err"></div>
     <label for="link-mobile">Mobile Number</label>
-    <input id="link-mobile" inputmode="numeric" />
-    <button type="button" id="btn-link-continue">Continue</button>
+    <input id="link-mobile" inputmode="numeric" maxlength="10" />
+    <div class="hidden" id="link-otp-wrap">
+      <label for="link-otp">OTP sent to your mobile</label>
+      <input id="link-otp" inputmode="numeric" maxlength="4" autocomplete="one-time-code" />
+    </div>
+    <button type="button" id="btn-link-continue">Send OTP</button>
   </div>
 
   <div class="card hidden" id="step-register">
@@ -932,15 +936,70 @@
     }
 
     // -----------------------------------------------------
-    // Link QR Flow (Simplified without OTP verification)
+    // Link QR Flow — the owner proves the mobile number with an OTP
+    // before the registration form opens. The server returns an
+    // activation token that /manual_activate requires.
     // -----------------------------------------------------
-    document.getElementById("btn-link-continue").onclick = () => {
-      const mob = document.getElementById("link-mobile").value.trim().replace(/\D/g, "");
+    let __otpSentTo = null;
+    const linkMobileEl = document.getElementById("link-mobile");
+    linkMobileEl.addEventListener("input", () => {
+      // Changing the number after an OTP was sent restarts the flow.
+      if (__otpSentTo && linkMobileEl.value.replace(/\D/g, "") !== __otpSentTo) {
+        __otpSentTo = null;
+        document.getElementById("link-otp-wrap").classList.add("hidden");
+        document.getElementById("link-otp").value = "";
+        document.getElementById("btn-link-continue").innerText = "Send OTP";
+      }
+    });
+
+    document.getElementById("btn-link-continue").onclick = async () => {
+      const btn = document.getElementById("btn-link-continue");
+      const mob = linkMobileEl.value.trim().replace(/\D/g, "");
       if (mob.length !== 10) return showModal("Please enter a valid 10-digit mobile number");
-      
-      window.__regMobile = mob;
-      document.getElementById("reg-mobile").value = window.__regMobile;
-      showStep('register');
+
+      btn.disabled = true;
+      try {
+        if (__otpSentTo !== mob) {
+          btn.innerText = "Sending…";
+          const r = await fetch(base + "/auth/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ mobile: mob }),
+          });
+          const d = await r.json().catch(() => ({}));
+          if (!r.ok) {
+            btn.innerText = "Send OTP";
+            return showModal(d.error || "Could not send OTP. Please try again.");
+          }
+          __otpSentTo = mob;
+          document.getElementById("link-otp-wrap").classList.remove("hidden");
+          document.getElementById("link-otp").focus();
+          btn.innerText = "Verify & Continue";
+          return;
+        }
+
+        const otp = document.getElementById("link-otp").value.trim().replace(/\D/g, "");
+        if (otp.length !== 4) return showModal("Please enter the 4-digit OTP");
+        btn.innerText = "Verifying…";
+        const r = await fetch(base + "/alert/" + encodeURIComponent(UNIQUE_ID) + "/activation/verify-otp", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mobile: mob, otp: otp }),
+        });
+        const d = await r.json().catch(() => ({}));
+        btn.innerText = "Verify & Continue";
+        if (!r.ok || !d.activation_token) {
+          return showModal(d.error || "Could not verify OTP. Please try again.");
+        }
+        window.__regMobile = mob;
+        window.__activationToken = d.activation_token;
+        document.getElementById("reg-mobile").value = window.__regMobile;
+        showStep('register');
+      } catch (e) {
+        showModal("Network error. Please try again.");
+      } finally {
+        btn.disabled = false;
+      }
     };
 
     // ── Pincode → City/State autofill ─────────────────────────
@@ -1099,6 +1158,7 @@
       btn.textContent = 'Activating…';
 
       const payload = {
+        activation_token: window.__activationToken,
         mobile: window.__regMobile,
         name: vName,
         dob: vDob,
@@ -1121,6 +1181,15 @@
           body: JSON.stringify(payload)
         });
         const data = await res.json();
+        if (res.status === 401) {
+          // Verification token expired (30 min) — verify the number again.
+          // The form fields stay filled in.
+          __otpSentTo = null;
+          document.getElementById("link-otp-wrap").classList.add("hidden");
+          document.getElementById("link-otp").value = "";
+          document.getElementById("btn-link-continue").innerText = "Send OTP";
+          showStep('linkQr');
+        }
         if (!res.ok) {
           showModal(data.error || "Activation failed");
           btn.disabled = false;

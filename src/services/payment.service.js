@@ -29,7 +29,120 @@ async function ensurePaymentsTable() {
   await pool.query(`CREATE INDEX IF NOT EXISTS payments_qr_idx   ON payments(qr_id);`);
   await pool.query(`CREATE INDEX IF NOT EXISTS payments_status_idx ON payments(status);`);
   await pool.query(`CREATE INDEX IF NOT EXISTS payments_created_idx ON payments(created_at DESC);`);
+  // Migration 026 — self-heal for pods that haven't run it yet.
+  await pool.query(`ALTER TABLE payments ADD COLUMN IF NOT EXISTS consumed_at TIMESTAMPTZ;`);
   _ensured = true;
+}
+
+// Internal test mobiles — Razorpay charges these accounts ₹1 instead of
+// the real price so the live gateway can be validated end-to-end. The UI
+// still shows the real price. Compared on the last 10 digits.
+const DISCOUNTED_TEST_MOBILES = new Set([
+  '9156250188',
+  '8857846064',
+]);
+const DISCOUNTED_CHARGE_PAISE = 100; // ₹1
+
+function last10(raw) {
+  const digits = String(raw || '').replace(/\D/g, '');
+  return digits.length >= 10 ? digits.slice(-10) : digits;
+}
+
+/**
+ * The amount (paise) Razorpay should actually charge this user for an
+ * item whose real price is `pricePaise`. Always decided on the server —
+ * never from the request body. Fails closed: if the lookup errors, the
+ * full price is charged.
+ */
+export async function chargeForUser(userId, pricePaise) {
+  try {
+    const r = await pool.query('SELECT mobile FROM users WHERE id = $1', [userId]);
+    const mob = last10(r.rows[0]?.mobile);
+    if (mob && DISCOUNTED_TEST_MOBILES.has(mob)) return DISCOUNTED_CHARGE_PAISE;
+  } catch (err) {
+    console.warn(`[payments] chargeForUser lookup failed user=${userId} — full price. err=${err.message}`);
+  }
+  return pricePaise;
+}
+
+function httpError(status, message) {
+  const e = new Error(message);
+  e.statusCode = status;
+  return e;
+}
+
+/**
+ * Lock the payments row for `razorpayOrderId` inside the caller's
+ * transaction and check it really pays for this action: same user, same
+ * purpose, same QR (renewals), right amount, and not already redeemed.
+ * Throws an Error with `statusCode` when it doesn't.
+ */
+export async function lockPaymentForRedemption(client, {
+  razorpayOrderId,
+  userId,
+  purpose,            // 'qr_create' | 'qr_renew'
+  qrId = null,        // required for 'qr_renew'
+  pricePaise,         // real price of the item
+}) {
+  await ensurePaymentsTable();
+  const r = await client.query(
+    `SELECT id, user_id, qr_id, purpose, amount_paise, intended_amount_paise,
+            status, consumed_at
+       FROM payments
+      WHERE razorpay_order_id = $1
+      FOR UPDATE`,
+    [razorpayOrderId]
+  );
+  const row = r.rows[0];
+  if (!row) {
+    console.error(`[CRITICAL][payments] redeem: no payments row order=${razorpayOrderId} user=${userId}`);
+    throw httpError(400, 'We could not match this payment. Contact support with your payment ID.');
+  }
+  if (row.user_id !== userId) {
+    console.warn(`[payments] redeem REJECTED — order belongs to user=${row.user_id}, caller=${userId} order=${razorpayOrderId}`);
+    throw httpError(403, 'This payment belongs to a different account.');
+  }
+  if (row.purpose !== purpose) {
+    console.warn(`[payments] redeem REJECTED — purpose ${row.purpose} != ${purpose} order=${razorpayOrderId}`);
+    throw httpError(400, 'This payment was made for a different purchase.');
+  }
+  if (purpose === 'qr_renew' && row.qr_id !== qrId) {
+    console.warn(`[payments] redeem REJECTED — renewal order for qr=${row.qr_id}, used on qr=${qrId} order=${razorpayOrderId}`);
+    throw httpError(400, 'This payment was made for a different QR.');
+  }
+  if (row.consumed_at || (purpose === 'qr_create' && row.qr_id)) {
+    throw httpError(409, 'This payment has already been used.');
+  }
+  const minCharge = await chargeForUser(userId, pricePaise);
+  if (row.intended_amount_paise < pricePaise || row.amount_paise < minCharge) {
+    console.error(
+      `[payments] redeem REJECTED — amount too low order=${razorpayOrderId} ` +
+      `charged=${row.amount_paise} intended=${row.intended_amount_paise} price=${pricePaise} min_charge=${minCharge}`
+    );
+    throw httpError(400, 'Payment amount does not match the price. Contact support with your payment ID.');
+  }
+  return row;
+}
+
+/** Mark a locked payments row as verified + redeemed, inside the caller's transaction. */
+export async function markPaymentRedeemed(client, {
+  paymentRowId,
+  razorpayPaymentId,
+  razorpaySignature,
+  qrId,
+}) {
+  await client.query(
+    `UPDATE payments
+        SET status              = 'verified',
+            razorpay_payment_id = COALESCE(NULLIF($2, ''), razorpay_payment_id),
+            razorpay_signature  = COALESCE(NULLIF($3, ''), razorpay_signature),
+            qr_id               = COALESCE(qr_id, $4),
+            verified_at         = COALESCE(verified_at, NOW()),
+            consumed_at         = NOW(),
+            error_message       = NULL
+      WHERE id = $1`,
+    [paymentRowId, razorpayPaymentId || '', razorpaySignature || '', qrId]
+  );
 }
 
 // Called immediately after createOrder() succeeds. `qr_id` is nullable
@@ -58,14 +171,18 @@ export async function recordOrderCreated({
        amountPaise, intendedAmountPaise, currency]
     );
   } catch (err) {
-    // NEVER fail the caller because of an audit-table write — the
-    // Razorpay order is already live at this point. But log with a
-    // `[CRITICAL]` marker so Render's log-alerts pick this up.
+    // The row is what later proves the price and owner of this order,
+    // so without it the order can't be redeemed. Fail the order request
+    // (the Razorpay order exists but nobody has paid it yet, so nothing
+    // is lost) instead of letting the customer pay for an unredeemable
+    // order.
     console.error(
-      '[CRITICAL][payments] recordOrderCreated failed — order lives on Razorpay ' +
-      'but has no local audit row. Manual reconciliation needed. ' +
+      '[CRITICAL][payments] recordOrderCreated failed — refusing to hand out the order. ' +
       `order_id=${razorpayOrderId} user=${userId} amount=${amountPaise} err=${err.message}`
     );
+    const e = new Error('Could not start the payment. Please try again.');
+    e.statusCode = 503;
+    throw e;
   }
 }
 
@@ -238,7 +355,7 @@ export async function getPaymentStatus(razorpayOrderId, userId) {
     await ensurePaymentsTable();
     const r = await pool.query(
       `SELECT status, qr_id, razorpay_payment_id, amount_paise,
-              intended_amount_paise, error_message, verified_at
+              intended_amount_paise, error_message, verified_at, consumed_at
          FROM payments
         WHERE razorpay_order_id = $1 AND user_id = $2`,
       [razorpayOrderId, userId]

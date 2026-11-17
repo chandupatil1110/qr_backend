@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { body, validationResult } from 'express-validator';
-import { verifyOtpAndLogin, issueLoginOtp } from '../services/auth.service.js';
+import { verifyOtpAndLogin, issueLoginOtp, normalizeLoginMobile } from '../services/auth.service.js';
 import { databaseErrorResponse } from '../utils/dbErrors.js';
 import { requireAuth } from '../middleware/auth.js';
 import { pool } from '../db/pool.js';
@@ -16,8 +16,11 @@ router.post(
     if (!errors.isEmpty()) {
       return res.status(400).json({ errors: errors.array() });
     }
+    const mobile = normalizeLoginMobile(req.body.mobile);
+    if (!mobile) {
+      return res.status(400).json({ error: 'Enter a valid 10-digit mobile number' });
+    }
     try {
-      const mobile = String(req.body.mobile).trim();
       const otp = await issueLoginOtp(mobile);
       // Play Store reviewer credential — no SMS dispatch, the reviewer
       // types the fixed OTP baked into auth.service.js. Kept in the
@@ -47,6 +50,9 @@ router.post(
       }
       return res.json({ message: 'OTP sent' });
     } catch (err) {
+      if (err.statusCode === 429) {
+        return res.status(429).json({ error: err.message });
+      }
       console.error('[auth/login] issueLoginOtp failed:', err);
       return res.status(500).json({ error: 'Could not send OTP — please try again' });
     }
@@ -62,9 +68,13 @@ router.post(
     if (!errors.isEmpty()) {
       return res.status(400).json({ errors: errors.array() });
     }
+    const mobile = normalizeLoginMobile(req.body.mobile);
+    if (!mobile) {
+      return res.status(400).json({ error: 'Enter a valid 10-digit mobile number' });
+    }
     try {
-      // Demo OTP 1234; creates user row on first login if mobile is new
-      const { user, token } = await verifyOtpAndLogin(req.body.mobile, req.body.otp);
+      // Creates the user row on first login if the mobile is new.
+      const { user, token } = await verifyOtpAndLogin(mobile, req.body.otp);
       return res.json({
         token,
         user: {

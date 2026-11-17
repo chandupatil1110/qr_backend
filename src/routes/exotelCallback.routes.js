@@ -74,8 +74,9 @@ router.get('/call-completion', async (req, res) => {
       DialCallStatus,
       Direction,
     },
-    query: req.query,
-    headers: req.headers,
+    // `key` is the webhook secret (see middleware/exotelAuth.js) — never log it.
+    query: { ...req.query, key: req.query?.key ? '[REDACTED]' : undefined },
+    headers: { ...req.headers, 'x-webhook-key': req.headers['x-webhook-key'] ? '[REDACTED]' : undefined },
     body: req.body && Object.keys(req.body).length ? req.body : undefined,
   });
 

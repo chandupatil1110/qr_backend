@@ -1,4 +1,7 @@
 import express from 'express';
+// Must stay near the top: routes async errors to the error handler
+// instead of crashing the process (Express 4).
+import './utils/asyncErrors.js';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
@@ -14,6 +17,7 @@ import exotelCallbackRoutes from './routes/exotelCallback.routes.js';
 import razorpayWebhookRoutes from './routes/razorpayWebhook.routes.js';
 import adminRoutes from './routes/admin.routes.js';
 import legalRoutes from './routes/legal.routes.js';
+import { requireExotelKey, redactKeyParam } from './middleware/exotelAuth.js';
 
 const app = express();
 
@@ -98,7 +102,8 @@ function redact(obj) {
 
 app.use((req, res, next) => {
   const start = Date.now();
-  const { method, originalUrl } = req;
+  const { method } = req;
+  const originalUrl = redactKeyParam(req.originalUrl);
   const hasBody = ['POST', 'PUT', 'PATCH'].includes(method);
   let bodyPreview = '';
   if (hasBody && req.body) {
@@ -168,8 +173,8 @@ app.use('/qr', qrRoutes);
 app.use('/payments', paymentRoutes);
 app.use('/api/app', appRoutes);
 app.use('/api/notifications', notificationRoutes);
-app.use('/exotel', exotelRoutes);
-app.use('/api/exotel', exotelCallbackRoutes);
+app.use('/exotel', requireExotelKey, exotelRoutes);
+app.use('/api/exotel', requireExotelKey, exotelCallbackRoutes);
 // Razorpay webhook — mounted OUTSIDE any auth middleware because
 // Razorpay hits it directly with HMAC-signed payloads. The route
 // verifies the signature itself.
@@ -257,7 +262,13 @@ app.get('/call/:callId', (req, res) => {
 });
 
 app.use((err, req, res, next) => {
-  console.error(err);
+  console.error(`[error] ${req.method} ${redactKeyParam(req.originalUrl)}`, err);
+  if (res.headersSent) return next(err);
+  // Malformed JSON bodies etc. carry a 4xx status from body-parser.
+  const status = err.status || err.statusCode;
+  if (status >= 400 && status < 500) {
+    return res.status(status).json({ error: 'Bad request' });
+  }
   res.status(500).json({ error: 'Internal server error' });
 });
 

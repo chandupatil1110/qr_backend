@@ -14,8 +14,9 @@ import { createOrder, verifyPaymentSignature } from '../services/razorpay.servic
 import { config } from '../config/index.js';
 import {
   recordOrderCreated,
-  markPaymentVerified,
   markPaymentFailed,
+  lockPaymentForRedemption,
+  markPaymentRedeemed,
 } from '../services/payment.service.js';
 
 const router = Router();
@@ -204,8 +205,9 @@ router.post('/:id/renew/order', requireAuth, async (req, res) => {
 
     const amount = config.renewal.amountPaise;
     const order = await createOrder(amount, `renew_${qrId}_${Date.now()}`);
-    // Renewal already knows the qr_id, so link it immediately.
-    recordOrderCreated({
+    // Renewal already knows the qr_id, so link it immediately. Awaited:
+    // /renew/verify checks this row for owner, QR and amount.
+    await recordOrderCreated({
       userId: req.userId,
       qrId,
       purpose: 'qr_renew',
@@ -263,7 +265,7 @@ router.post(
            FROM payments p
            JOIN qrdata q ON q.id = p.qr_id
           WHERE p.razorpay_order_id = $1
-            AND p.status = 'verified'
+            AND p.consumed_at IS NOT NULL
             AND p.user_id = $2
             AND p.qr_id = $3
           LIMIT 1`,
@@ -316,6 +318,17 @@ router.post(
         return res.status(404).json({ error: 'QR not found — this payment needs a manual refund. Contact support with your payment ID.' });
       }
 
+      // The order must be a renewal for THIS QR by this user, at the
+      // renewal price, and not redeemed before. Row lock blocks a second
+      // concurrent verify from extending the QR twice.
+      const paymentRow = await lockPaymentForRedemption(client, {
+        razorpayOrderId: razorpay_order_id,
+        userId: req.userId,
+        purpose: 'qr_renew',
+        qrId,
+        pricePaise: config.renewal.amountPaise,
+      });
+
       const r = await client.query(
         `UPDATE qrdata
             SET is_active = true,
@@ -327,15 +340,16 @@ router.post(
           RETURNING id, vehicle_number, is_active, date_of_activation`,
         [qrId]
       );
-      await client.query('COMMIT');
       const row = r.rows[0];
-      // Mark the payment as verified now that the QR renewal succeeded.
-      markPaymentVerified({
-        razorpayOrderId: razorpay_order_id,
+      // Mark the payment verified + redeemed in the same transaction as
+      // the extension, so they commit together.
+      await markPaymentRedeemed(client, {
+        paymentRowId: paymentRow.id,
         razorpayPaymentId: razorpay_payment_id,
         razorpaySignature: razorpay_signature,
         qrId: row.id,
       });
+      await client.query('COMMIT');
       console.log(`[qr/renew/verify] user=${req.userId} qr_id=${qrId} new_activation=${row.date_of_activation}`);
       return res.json({
         ok: true,
@@ -346,6 +360,12 @@ router.post(
       });
     } catch (err) {
       await client.query('ROLLBACK').catch(() => {});
+      // 4xx = the payment was rejected for this renewal (wrong QR, owner,
+      // amount, or already used). Don't flag the payment row as failed.
+      if (err.statusCode >= 400 && err.statusCode < 500) {
+        console.warn(`[qr/renew/verify] REJECTED user=${req.userId} qr_id=${qrId} order=${razorpay_order_id} status=${err.statusCode} err=${err.message}`);
+        return res.status(err.statusCode).json({ error: err.message });
+      }
       // Customer's card was already charged before we got here. Mark
       // the payment as failed so the daily orphaned-payment report
       // catches it for manual refund.

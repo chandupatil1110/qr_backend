@@ -1,10 +1,14 @@
 import { randomUUID } from 'crypto';
 import { pool } from '../db/pool.js';
 import { config } from '../config/index.js';
-import { verifyPaymentSignature } from './razorpay.service.js';
+import { verifyPaymentSignature, DEFAULT_AMOUNT_PAISE } from './razorpay.service.js';
 import { sendInvoiceEmail } from './mail.service.js';
 import { sendQrCreated, sendQrSuccess } from './sms.service.js';
-import { markPaymentVerified, markPaymentFailed } from './payment.service.js';
+import {
+  markPaymentFailed,
+  lockPaymentForRedemption,
+  markPaymentRedeemed,
+} from './payment.service.js';
 
 // Client-facing relation groups. Stored verbatim in family_details.relation.
 // The relation field was dropped from the emergency-contact form — we now
@@ -55,7 +59,12 @@ export async function createQrRecord({
   // Verify the Razorpay HMAC BEFORE any DB writes. Manual activations
   // pass 'manual' sentinel strings (see alert.routes.js manual_activate)
   // and bypass this — those flow through referral-code auth instead.
+  //
+  // `isManual` is set only by server code (alert.routes.js manual_activate);
+  // /qr/create forces it to false after spreading req.body. Requiring it
+  // stops a client from skipping payment by posting the 'manual' strings.
   const isManualBypass =
+    isManual === true &&
     razorpay_order_id === 'manual' &&
     razorpay_payment_id === 'manual' &&
     razorpay_signature === 'manual';
@@ -174,6 +183,20 @@ export async function createQrRecord({
   try {
     await client.query('BEGIN');
 
+    // Lock the payment row and check it actually pays for a QR for this
+    // user at the right price, and hasn't been redeemed already. The row
+    // lock also serialises concurrent /qr/create calls for one order, so
+    // a single payment can't produce two QRs.
+    let paymentRow = null;
+    if (!isManualBypass) {
+      paymentRow = await lockPaymentForRedemption(client, {
+        razorpayOrderId: razorpay_order_id,
+        userId,
+        purpose: 'qr_create',
+        pricePaise: DEFAULT_AMOUNT_PAISE,
+      });
+    }
+
     // Digit allocation strategy:
     //   - Manual QR activation: use the digits pre-allocated on manual_qr
     //     at MINT time. Physical stickers are already printed with them.
@@ -247,20 +270,20 @@ export async function createQrRecord({
         [qr.id, f.name.trim(), String(f.phone).replace(/\s/g, ''), (f.relation || '').toString().trim()]
       );
     }
-    await client.query('COMMIT');
-    const alertUrl = `${config.publicAppUrl}/alert/${uniqueId}?digits=${qr.digits}`;
 
-    // Link the payment audit row to the freshly-created QR and mark
-    // the payment as verified. Manual activations skip this — they
-    // never had a Razorpay order in the first place.
-    if (!isManualBypass) {
-      markPaymentVerified({
-        razorpayOrderId: razorpay_order_id,
+    // Link the payment to the new QR and mark it redeemed in the same
+    // transaction, so the QR and the "payment used" flag commit together.
+    // Manual activations skip this — they never had a Razorpay order.
+    if (paymentRow) {
+      await markPaymentRedeemed(client, {
+        paymentRowId: paymentRow.id,
         razorpayPaymentId: effectivePaymentId,
         razorpaySignature: razorpay_signature,
         qrId: qr.id,
       });
     }
+    await client.query('COMMIT');
+    const alertUrl = `${config.publicAppUrl}/alert/${uniqueId}?digits=${qr.digits}`;
 
     // Fire-and-forget invoice email. Errors are swallowed inside the
     // service so a flaky SMTP never masks a successful activation. We
@@ -314,7 +337,10 @@ export async function createQrRecord({
     }
     // Any other post-signature failure is even worse — customer paid,
     // our end broke. Mark it for the reconciliation cron to pick up.
-    if (!isManualBypass && razorpay_order_id) {
+    // 4xx errors are redemption rejections (wrong owner/amount, already
+    // used) — those must not flag a good payment row as failed.
+    const isRejection = e && e.statusCode >= 400 && e.statusCode < 500;
+    if (!isManualBypass && razorpay_order_id && !isRejection) {
       markPaymentFailed({
         razorpayOrderId: razorpay_order_id,
         errorMessage: `post_payment_error: ${e.message || 'unknown'}`,

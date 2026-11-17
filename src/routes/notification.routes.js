@@ -2,12 +2,15 @@ import { Router } from 'express';
 import { body, validationResult } from 'express-validator';
 import { pool } from '../db/pool.js';
 import { requireAuth } from '../middleware/auth.js';
+import { requireAdmin } from '../middleware/adminAuth.js';
 
 const router = Router();
 
-// Send Notification (Authorized/Admins)
+// Send Notification — admin only (X-Admin-Key). Previously unauthenticated,
+// which let anyone push a message to every user via userIds:["all"].
 router.post(
   '/send',
+  requireAdmin,
   body('userIds').isArray().withMessage('userIds must be an array of strings/numbers'),
   body('title').trim().notEmpty().withMessage('title is required'),
   body('message').trim().notEmpty().withMessage('message is required'),
@@ -60,10 +63,15 @@ router.post(
 );
 
 // Get Notifications By User (with Pagination)
+// The :userId in the path must be the caller's own id — a user can only
+// read their own notifications.
 router.get('/user/:userId', requireAuth, async (req, res) => {
   const { userId } = req.params;
-  const page = parseInt(req.query.page || '1', 10);
-  const limit = parseInt(req.query.limit || '20', 10);
+  if (String(userId) !== String(req.userId)) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  const page = Math.max(parseInt(req.query.page || '1', 10) || 1, 1);
+  const limit = Math.min(Math.max(parseInt(req.query.limit || '20', 10) || 20, 1), 100);
   const offset = (page - 1) * limit;
 
   try {
@@ -93,13 +101,17 @@ router.get('/user/:userId', requireAuth, async (req, res) => {
 
 // Mark Notification Read
 router.put('/read/:notificationId', requireAuth, async (req, res) => {
-  const { notificationId } = req.params;
+  const notificationId = parseInt(req.params.notificationId, 10);
+  if (!Number.isFinite(notificationId)) {
+    return res.status(404).json({ error: 'Notification not found' });
+  }
 
   try {
+    // Scoped to the caller: someone else's notification looks "not found".
     const r = await pool.query(
       `UPDATE notifications SET "isRead" = true, "updatedAt" = NOW()
-       WHERE id = $1 RETURNING *`,
-      [notificationId]
+       WHERE id = $1 AND "userId" = $2 RETURNING *`,
+      [notificationId, req.userId]
     );
     if (!r.rows.length) {
       return res.status(404).json({ error: 'Notification not found' });
@@ -113,10 +125,16 @@ router.put('/read/:notificationId', requireAuth, async (req, res) => {
 
 // Delete Notification
 router.delete('/:notificationId', requireAuth, async (req, res) => {
-  const { notificationId } = req.params;
+  const notificationId = parseInt(req.params.notificationId, 10);
+  if (!Number.isFinite(notificationId)) {
+    return res.status(404).json({ error: 'Notification not found' });
+  }
 
   try {
-    const r = await pool.query('DELETE FROM notifications WHERE id = $1 RETURNING id', [notificationId]);
+    const r = await pool.query(
+      'DELETE FROM notifications WHERE id = $1 AND "userId" = $2 RETURNING id',
+      [notificationId, req.userId]
+    );
     if (!r.rows.length) {
       return res.status(404).json({ error: 'Notification not found' });
     }

@@ -17,8 +17,25 @@ import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import path from 'path';
 import { config } from '../config/index.js';
+import jwt from 'jsonwebtoken';
+import { verifyOtpAndLogin, normalizeLoginMobile } from '../services/auth.service.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const router = Router();
+
+// Every QR id is a UUID (qrdata.unique_id is a UUID column). Rejecting
+// anything else up front stops (a) script injection into the alert page,
+// which embeds the id in an inline <script>, and (b) Postgres "invalid
+// input syntax for type uuid" errors on every /:uniqueId/* route.
+// See /:uniqueId/event — minimum gap between scan-alert SMS bursts per QR.
+const SMS_COOLDOWN_MINUTES = 10;
+
+const UUID_RE =/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+router.param('uniqueId', (req, res, next, value) => {
+  if (!UUID_RE.test(String(value))) {
+    return res.status(404).json({ error: 'Not found' });
+  }
+  next();
+});
 function loadAlertPageHtml() {
   try {
     return readFileSync(path.join(__dirname, '../public/alert-page.html'), 'utf8');
@@ -183,6 +200,20 @@ router.post(
 
       const userAgent = String(req.headers['user-agent'] || '').slice(0, 500);
 
+      // SMS cooldown: one scan-alert SMS burst per QR per
+      // SMS_COOLDOWN_MINUTES. Each burst texts the owner AND every family
+      // contact, so without this anyone could run up the SMS bill and
+      // flood those phones by tapping (or scripting) the call button.
+      // Checked before inserting this event so it only sees earlier ones.
+      const recent = await pool.query(
+        `SELECT 1 FROM alert_events
+          WHERE qr_id = $1
+            AND created_at > NOW() - make_interval(mins => $2)
+          LIMIT 1`,
+        [qr.id, SMS_COOLDOWN_MINUTES]
+      );
+      const smsOnCooldown = recent.rows.length > 0;
+
       await pool.query(
         `INSERT INTO alert_events
            (qr_id, contact_kind, contact_family_id, latitude, longitude,
@@ -209,15 +240,19 @@ router.post(
       //
       // Fire-and-forget so the response returns instantly and the
       // dialer opens on the bystander's phone without waiting on SMS.
-      sendScanAlertToAll(qr.id)
-        .then((r) =>
-          console.log(
-            `[alert/event] scan-alert result qr_id=${qr.id} kind=${contact_kind} ${JSON.stringify(r)}`
+      if (smsOnCooldown) {
+        console.log(`[alert/event] scan-alert SMS skipped (cooldown) qr_id=${qr.id}`);
+      } else {
+        sendScanAlertToAll(qr.id)
+          .then((r) =>
+            console.log(
+              `[alert/event] scan-alert result qr_id=${qr.id} kind=${contact_kind} ${JSON.stringify(r)}`
+            )
           )
-        )
-        .catch((e) =>
-          console.error('[alert/event] sendScanAlertToAll threw:', e)
-        );
+          .catch((e) =>
+            console.error('[alert/event] sendScanAlertToAll threw:', e)
+          );
+      }
 
       // Fire-and-forget push to the QR owner: "your QR was just scanned".
       // Runs after res.json so a slow FCM call can't stretch the response.
@@ -270,8 +305,57 @@ router.get('/:uniqueId/status', async (req, res) => {
   }
 });
 
-router.post('/:uniqueId/manual_activate',
+// ─── Sticker activation: step 1 — prove the mobile number ─────────────
+// The page sends an OTP with POST /auth/login, then posts it here. On
+// success we return a 30-minute activation token bound to this sticker
+// and this mobile; /manual_activate requires it. Before this, anyone
+// with the sticker could link it to any phone number without proof.
+// The token has no `sub`, so requireAuth never accepts it as a login.
+const ACTIVATION_TOKEN_PURPOSE = 'manual_activate';
+
+router.post('/:uniqueId/activation/verify-otp',
   body('mobile').trim().notEmpty(),
+  body('otp').trim().notEmpty(),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+    const { uniqueId } = req.params;
+    const mobile = normalizeLoginMobile(req.body.mobile);
+    if (!mobile) return res.status(400).json({ error: 'Enter a valid 10-digit mobile number' });
+
+    const sticker = await pool.query(
+      `SELECT 1 FROM manual_qr WHERE qr_unique_id = $1 AND is_active = true`,
+      [uniqueId]
+    );
+    if (!sticker.rows.length) {
+      return res.status(404).json({ error: 'This QR cannot be activated' });
+    }
+
+    let user;
+    try {
+      ({ user } = await verifyOtpAndLogin(mobile, req.body.otp));
+    } catch (e) {
+      if (e.statusCode) return res.status(e.statusCode).json({ error: e.message });
+      throw e;
+    }
+    // verifyOtpAndLogin creates the users row for a new number. Flag it
+    // as created by sticker activation, like the old path did.
+    if (user.created_at && Date.now() - new Date(user.created_at).getTime() < 5 * 60 * 1000) {
+      await pool.query(`UPDATE users SET manual_user = true WHERE id = $1 AND name IS NULL`, [user.id]);
+    }
+
+    const activationToken = jwt.sign(
+      { purpose: ACTIVATION_TOKEN_PURPOSE, mobile, qr: uniqueId.toLowerCase() },
+      config.jwtSecret,
+      { expiresIn: '30m' }
+    );
+    return res.json({ activation_token: activationToken });
+  }
+);
+
+// ─── Sticker activation: step 2 — create the QR ────────────────────────
+router.post('/:uniqueId/manual_activate',
+  body('activation_token').isString().notEmpty(),
   body('name').trim().notEmpty(),
   body('vehicle_number').trim().matches(/^([A-Z]{2}[0-9]{2}[A-Z]{1,2}[0-9]{4}|[0-9]{2}BH[0-9]{4}[A-Z]{1,2})$/),
   body('referralCode').trim().notEmpty(),
@@ -294,8 +378,22 @@ router.post('/:uniqueId/manual_activate',
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
     const { uniqueId } = req.params;
+
+    // The mobile comes from the OTP-verified activation token, never
+    // from the request body.
+    let mobile;
+    try {
+      const claims = jwt.verify(String(req.body.activation_token), config.jwtSecret);
+      if (claims.purpose !== ACTIVATION_TOKEN_PURPOSE || claims.qr !== uniqueId.toLowerCase() || !claims.mobile) {
+        throw new Error('wrong token');
+      }
+      mobile = claims.mobile;
+    } catch {
+      return res.status(401).json({ error: 'Mobile verification expired — please verify your number again.' });
+    }
+
     const {
-      mobile, name, vehicle_number, referralCode, family, email,
+      name, vehicle_number, referralCode, family, email,
       blood_group,
       shipping_address_line1, shipping_address_line2,
       shipping_city, shipping_state, shipping_pincode,
@@ -342,6 +440,20 @@ router.post('/:uniqueId/manual_activate',
       }
     }
 
+    // Claim the sticker atomically BEFORE creating the QR, so two
+    // concurrent activations of the same sticker can't both succeed.
+    // `used = true` distinguishes "customer activated" from "admin
+    // deactivated" (is_active=false). Released again if creation fails.
+    const claim = await pool.query(
+      `UPDATE manual_qr SET is_active = false, used = true
+        WHERE id = $1 AND is_active = true
+        RETURNING id`,
+      [manualQr.id]
+    );
+    if (!claim.rows.length) {
+      return res.status(409).json({ error: 'This QR has already been activated.' });
+    }
+
     // Use internal QR service — pass the pre-allocated digits from
     // manual_qr so the freshly-created qrdata row carries the same
     // extension code that's already printed on the physical sticker.
@@ -367,12 +479,6 @@ router.post('/:uniqueId/manual_activate',
         shipping_state: shipping_state || null,
         shipping_pincode: shipping_pincode || null,
       });
-      // Mark the sticker as redeemed. `used = true` distinguishes
-      // "customer activated" from "admin deactivated" (is_active=false).
-      await pool.query(
-        `UPDATE manual_qr SET is_active = false, used = true WHERE id = $1`,
-        [manualQr.id]
-      );
       return res.json({
         success: true,
         unique_id: uniqueId,
@@ -381,14 +487,23 @@ router.post('/:uniqueId/manual_activate',
         message: 'QR linked successfully. You can now sign into the app with your mobile number.',
       });
     } catch (e) {
-      return res.status(500).json({ error: e.message });
+      // Release the sticker so the customer can retry.
+      await pool.query(
+        `UPDATE manual_qr SET is_active = true, used = false WHERE id = $1`,
+        [manualQr.id]
+      ).catch((relErr) => console.error('[manual_activate] sticker release failed:', relErr));
+      const status = e.statusCode || 500;
+      if (status >= 500) console.error('[manual_activate] failed:', e);
+      return res.status(status).json({ error: status >= 500 ? 'Activation failed — please try again.' : e.message });
     }
   }
 );
 
 router.get('/:uniqueId', (req, res) => {
+  // uniqueId is already validated as a UUID by router.param above, so it
+  // contains only hex digits and dashes and is safe inside the page.
   const html = loadAlertPageHtml()
-    .replaceAll('__UNIQUE_ID__', req.params.uniqueId)
+    .replaceAll('__UNIQUE_ID__', req.params.uniqueId.toLowerCase())
     .replaceAll('__BRIDGE_NUMBER__', config.exotel.bridgeNumber);
   res.type('html').send(html);
 });
