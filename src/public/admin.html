@@ -260,14 +260,16 @@
                style="padding: 10px 12px;" />
         <p class="muted" id="slide-upload-note" style="margin: 6px 0 0; font-size: 11px;">
           Pick a JPEG, PNG, WebP, or GIF. Uploads straight to Supabase storage.
-          16:9 or 4:3 reads cleanest in the carousel.
+          Use the SAME size for every banner (e.g. 1600×1200 or 1600×900) — the app
+          sizes the carousel to the first banner, and a banner of another shape
+          gets white margins. The whole image is shown, nothing is cropped.
         </p>
         <div style="margin-top: 10px; display: flex; gap: 10px;">
           <button class="ghost" id="slide-upload-btn">Upload Image</button>
         </div>
         <div id="slide-preview-wrap" class="hidden" style="margin-top: 12px;">
           <img id="slide-preview" src="" alt="preview"
-               style="width: 100%; max-width: 360px; aspect-ratio: 4/3; object-fit: cover; border-radius: 10px; background: #000; border: 1px solid var(--hairline);" />
+               style="width: 100%; max-width: 360px; object-fit: contain; border-radius: 10px; background: #fff; border: 1px solid var(--hairline);" />
           <p class="muted" style="margin: 6px 0 0; font-size: 11px; word-break: break-all;">
             <span id="slide-image-url-display">—</span>
           </p>

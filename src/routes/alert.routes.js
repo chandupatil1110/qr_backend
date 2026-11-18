@@ -17,8 +17,7 @@ import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import path from 'path';
 import { config } from '../config/index.js';
-import jwt from 'jsonwebtoken';
-import { verifyOtpAndLogin, normalizeLoginMobile } from '../services/auth.service.js';
+import { normalizeLoginMobile } from '../services/auth.service.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const router = Router();
 
@@ -305,57 +304,9 @@ router.get('/:uniqueId/status', async (req, res) => {
   }
 });
 
-// ─── Sticker activation: step 1 — prove the mobile number ─────────────
-// The page sends an OTP with POST /auth/login, then posts it here. On
-// success we return a 30-minute activation token bound to this sticker
-// and this mobile; /manual_activate requires it. Before this, anyone
-// with the sticker could link it to any phone number without proof.
-// The token has no `sub`, so requireAuth never accepts it as a login.
-const ACTIVATION_TOKEN_PURPOSE = 'manual_activate';
-
-router.post('/:uniqueId/activation/verify-otp',
-  body('mobile').trim().notEmpty(),
-  body('otp').trim().notEmpty(),
-  async (req, res) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
-    const { uniqueId } = req.params;
-    const mobile = normalizeLoginMobile(req.body.mobile);
-    if (!mobile) return res.status(400).json({ error: 'Enter a valid 10-digit mobile number' });
-
-    const sticker = await pool.query(
-      `SELECT 1 FROM manual_qr WHERE qr_unique_id = $1 AND is_active = true`,
-      [uniqueId]
-    );
-    if (!sticker.rows.length) {
-      return res.status(404).json({ error: 'This QR cannot be activated' });
-    }
-
-    let user;
-    try {
-      ({ user } = await verifyOtpAndLogin(mobile, req.body.otp));
-    } catch (e) {
-      if (e.statusCode) return res.status(e.statusCode).json({ error: e.message });
-      throw e;
-    }
-    // verifyOtpAndLogin creates the users row for a new number. Flag it
-    // as created by sticker activation, like the old path did.
-    if (user.created_at && Date.now() - new Date(user.created_at).getTime() < 5 * 60 * 1000) {
-      await pool.query(`UPDATE users SET manual_user = true WHERE id = $1 AND name IS NULL`, [user.id]);
-    }
-
-    const activationToken = jwt.sign(
-      { purpose: ACTIVATION_TOKEN_PURPOSE, mobile, qr: uniqueId.toLowerCase() },
-      config.jwtSecret,
-      { expiresIn: '30m' }
-    );
-    return res.json({ activation_token: activationToken });
-  }
-);
-
-// ─── Sticker activation: step 2 — create the QR ────────────────────────
+// ─── Sticker activation: create the QR from a pre-printed sticker ──────
 router.post('/:uniqueId/manual_activate',
-  body('activation_token').isString().notEmpty(),
+  body('mobile').trim().notEmpty(),
   body('name').trim().notEmpty(),
   body('vehicle_number').trim().matches(/^([A-Z]{2}[0-9]{2}[A-Z]{1,2}[0-9]{4}|[0-9]{2}BH[0-9]{4}[A-Z]{1,2})$/),
   body('referralCode').trim().notEmpty(),
@@ -379,17 +330,11 @@ router.post('/:uniqueId/manual_activate',
 
     const { uniqueId } = req.params;
 
-    // The mobile comes from the OTP-verified activation token, never
-    // from the request body.
-    let mobile;
-    try {
-      const claims = jwt.verify(String(req.body.activation_token), config.jwtSecret);
-      if (claims.purpose !== ACTIVATION_TOKEN_PURPOSE || claims.qr !== uniqueId.toLowerCase() || !claims.mobile) {
-        throw new Error('wrong token');
-      }
-      mobile = claims.mobile;
-    } catch {
-      return res.status(401).json({ error: 'Mobile verification expired — please verify your number again.' });
+    // Same 10-digit form the app's login uses, so the activated QR shows
+    // up when the owner signs in with this number.
+    const mobile = normalizeLoginMobile(req.body.mobile);
+    if (!mobile) {
+      return res.status(400).json({ error: 'Enter a valid 10-digit mobile number' });
     }
 
     const {
